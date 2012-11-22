@@ -196,12 +196,10 @@ void debug_draw_all(const Model& m, const Camera::Linear& cam, const SE3<>& E)
 
 
 	auto vert = [&](const Vector<3>& x){
-		glColor3f(0, (1-(x[2]-minz)/(maxz-minz))*0.9 + 0.1, 0);
+		glColor3f(0, 0, (1-(x[2]-minz)/(maxz-minz))*0.6 + 0.1);
 		glVertex(cam.project(project(x)));
 	};
 
-	glClear(GL_COLOR_BUFFER_BIT);
-	glColor3f(0,1,0);
 	glBegin(GL_LINES);
 	for(size_t i=0; i < m.get_edges().size(); i++)
 	{
@@ -219,8 +217,6 @@ void debug_draw_all(const Model& m, const Camera::Linear& cam, const SE3<>& E)
 		vert(EV);
 	}
 	glEnd();
-	glFlush();
-	cin.get();
 }
 
 
@@ -282,7 +278,10 @@ int main()
 	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
 	cout << E << endl;
 	
+	glClear(GL_COLOR_BUFFER_BIT);
 	debug_draw_all(m, cam, E);
+	glFlush();
+	cin.get();
 	
 	
 	vector<Vertex> vertices = get_sorted_list_of_camera_vertices_without_edges(cam, E, m.vertices);
@@ -352,9 +351,51 @@ int main()
 	}
 
 
+	auto cross=[](const Vector<2>& v)
+	{
+		glColor3f(1,0,0);
+		int size=3;
+		glVertex(v+makeVector( size, 0));
+		glVertex(v+makeVector(-size, 0));
+		glVertex(v+makeVector(0,  size));
+		glVertex(v+makeVector(0, -size));
+	};
+
 	//At this point we have a sorted list of vertices, 
 	//and faces, vertices and edges with all cross referencing
 	//information.
+	for(auto v: vertices)
+	{
+		glClear(GL_COLOR_BUFFER_BIT);
+		debug_draw_all(m, cam, E);
+		glBegin(GL_LINES);
 
+		glColor3f(.5, 0, 0);
+		glVertex2f(v.cam2d[0], 0);
+		glVertex2f(v.cam2d[0], 480);
+
+		for(auto e:v.left_edges)
+		{
+			glColor3f(1, 1, 0);
+			glVertex(e->vertex1->cam2d);
+			glColor3f(0, 1, 0);
+			glVertex(e->vertex2->cam2d);
+		}
+
+		for(auto e:v.right_edges)
+		{
+			glColor3f(0, 1, 0);
+			glVertex(e->vertex1->cam2d);
+			glColor3f(0, 1, 1);
+			glVertex(e->vertex2->cam2d);
+		}
+
+		cross(v.cam2d);
+
+		glEnd();
+		glFlush();
+		cin.get();
+
+	}
 
 }
