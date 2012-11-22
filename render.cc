@@ -6,9 +6,12 @@
 #include <algorithm>
 #include <exception>
 #include <set>
+#include <iomanip>
 #include <TooN/se3.h>
+#include <tag/stdpp.h>
 using namespace CVD;
 using namespace std;
+using namespace tag;
 using namespace TooN;
 
 
@@ -22,6 +25,26 @@ vector<pair<int, Vector<2>>> proj(const vector<Vector<3>>& vertices, const SE3<>
 	return ret;
 }
 
+
+#define DEBUG
+
+template<class C, size_t Size> class Array: private array<C, Size>
+{
+	public:
+		using array<C, Size>::size;
+
+		C& operator[](size_t i)
+		{
+			assert(i < Size);
+			return array<C, Size>::operator[](i);
+		}	
+
+		const C& operator[](size_t i) const
+		{
+			assert(i < Size);
+			return array<C, Size>::operator[](i);
+		}	
+};
 
 template<class C, size_t Max> class static_vector
 {
@@ -50,14 +73,35 @@ template<class C, size_t Max> class static_vector
 
 		const C& operator[](size_t i) const
 		{
+			assert(i < num);
 			return data[i];
 		}
+
+		#ifdef DEBUG
+			~static_vector()
+			{
+				for(size_t i=0;i<Max; i++)
+					unset(data[i]);
+				num=0;
+			}
+		#endif
 };
 
 
 struct Vertex;
 struct Edge;
 struct Face;
+
+
+
+template<class C> void unset(C& c)
+{
+	c=C();
+}
+template<class C*> void unset(C& c)
+{
+	c = reinterpret_cast<C>(0xbadc0ffee0ddf00d);
+}
 
 //Edge structure: an edge consists of two vertices
 //and a list of faces.
@@ -72,6 +116,16 @@ struct Edge
 	:vertex1(left(v1, v2)),vertex2(right(v1, v2))
 	{
 	}
+
+
+	#ifdef DEBUG
+		~Edge()
+		{
+			unset(vertex1);
+			unset(vertex2);
+		}
+
+	#endif
 	
 	private:
 		inline bool a_is_on_left(const Vertex* a, const Vertex* b);
@@ -118,7 +172,7 @@ struct Vertex
 
 struct Face
 {
-	array<Vertex*,3> vertices;
+	Array<Vertex*,3> vertices;
 	static_vector<Edge*, 3> edges;
 };
 
@@ -129,22 +183,40 @@ inline bool Edge::a_is_on_left(const Vertex* a, const Vertex* b)
 }
 
 
-void debug_draw_all(const Model& m)
+void debug_draw_all(const Model& m, const Camera::Linear& cam, const SE3<>& E)
 {
+	double minz=1e99, maxz=-1e99;
+
+	for(auto v:m.vertices)
+	{
+		double z = (E*v)[2];
+		minz = min(minz, z);
+		maxz = max(maxz, z);
+	}
+
+
+	auto vert = [&](const Vector<3>& x){
+		glColor3f(0, (1-(x[2]-minz)/(maxz-minz))*0.9 + 0.1, 0);
+		glVertex(cam.project(project(x)));
+	};
+
 	glClear(GL_COLOR_BUFFER_BIT);
 	glColor3f(0,1,0);
 	glBegin(GL_LINES);
 	for(size_t i=0; i < m.get_edges().size(); i++)
 	{
-		glVertex(m.A_pos(i));	
-		glVertex(m.U_pos(i));	
+		Vector<3> EA = E*m.A_pos(i);
+		Vector<3> EU = E*m.U_pos(i);
+		Vector<3> EV = E*m.V_pos(i);
+		
+		vert(EA);
+		vert(EU);
 
-		glVertex(m.A_pos(i));	
-		glVertex(m.V_pos(i));	
+		vert(EA);
+		vert(EV);
 
-		glVertex(m.U_pos(i));	
-		glVertex(m.V_pos(i));	
-
+		vert(EU);
+		vert(EV);
 	}
 	glEnd();
 	glFlush();
@@ -190,7 +262,6 @@ vector<Vertex> get_sorted_list_of_camera_vertices_without_edges(const Camera::Li
 	return vertices;
 }
 
-
 int main()
 {
 	Model m("cube.ply");
@@ -211,7 +282,7 @@ int main()
 	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
 	cout << E << endl;
 	
-
+	debug_draw_all(m, cam, E);
 	
 	
 	vector<Vertex> vertices = get_sorted_list_of_camera_vertices_without_edges(cam, E, m.vertices);
@@ -220,30 +291,34 @@ int main()
 	//we need a mapping:
 	vector<Vertex*> index_to_vertex(vertices.size());
 	for(auto& v:vertices)
+	{
 		index_to_vertex[v.index] = &v;
+		cout << setprecision(15) << v.cam2d[0] << endl;
+	}
 
 	
 	vector<Edge> edges;
+	vector<Face> faces(m.get_edges().size());
 	{
 		//Get all the unique edges and faces
-		//Not that the model is very badly named.
+		//Note that the model is very badly named.
 		//get_edges(), actually gets the list of *faces*
 		//~yay~
-
 		map<pair<const Vertex*, const Vertex*>, Edge> s_edges;
-		vector<Face> faces(m.get_edges().size());
 		
 		for(unsigned int i=0; i < m.get_edges().size(); i++)
 		{
 			
 			Face* face = &faces[i];
 			//Fill in the list of vertices which each face has
-			for(unsigned int j=0; j < m.get_edges().size(); j++)
+			for(unsigned int j=0; j < m.get_edges()[i].size(); j++)
 				face->vertices[j] = index_to_vertex[m.get_edges()[i][j]];
 
+
 			//Now get the closed loop of edges
-			for(unsigned int j=0; j < m.get_edges().size(); j++)
+			for(unsigned int j=0; j < m.get_edges()[i].size(); j++)
 			{
+
 				Vertex* v1 = face->vertices[j];
 				Vertex* v2 = face->vertices[(j+1) % face->vertices.size()];
 
