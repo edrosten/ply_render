@@ -112,11 +112,10 @@ struct Edge
 	Vertex *vertex1, *vertex2;
 	static_vector<Face*, 2> faces;
 
-	Edge(Vertex*v1, Vertex* v2)
-	:vertex1(left(v1, v2)),vertex2(right(v1, v2))
-	{
-	}
+	inline Edge(Vertex*v1, Vertex* v2);
 
+	//y as a function of x
+	inline double y(double x) const;
 
 	#ifdef DEBUG
 		~Edge()
@@ -128,9 +127,9 @@ struct Edge
 	#endif
 	
 	private:
-		inline bool a_is_on_left(const Vertex* a, const Vertex* b);
+		inline bool a_is_on_left(const Vertex* a, const Vertex* b) const;
 
-		Vertex* left(Vertex* a, Vertex* b)
+		Vertex* left(Vertex* a, Vertex* b) const
 		{
 			if(a_is_on_left(a, b))
 				return a;
@@ -138,7 +137,7 @@ struct Edge
 				return b;
 		}
 
-		Vertex* right(Vertex* a, Vertex* b)
+		Vertex* right(Vertex* a, Vertex* b) const
 		{
 			if(a_is_on_left(a, b))
 				return b;
@@ -167,7 +166,38 @@ struct Vertex
 	int index; //Which vertex is this?
 
 	vector<Edge*> left_edges; //List of edges to the left of the current point
+
+	
 	vector<Edge*> right_edges; //List of edges to the right of the current point
+	                           //The list of right edges needs to be sorted top to
+							   //bottom to minimize superfluous sorting at later points.
+							   //Top is smallest y
+
+	void sort_right()
+	{
+		sort(right_edges.begin(), right_edges.end(), 
+			[&](Edge* a, Edge* b)
+			{
+				assert(a->vertex1 ==this);
+				assert(b->vertex1 ==this);
+				
+				//Calculate the height of a unit triangle as:
+				//h / 1 = dy / dx
+				//And sort by h
+
+				Vector<2> d_a = a->vertex2->cam2d - cam2d;
+				double  h_a = d_a[1]/d_a[0];
+				assert(d_a[0] != 0);
+
+				Vector<2> d_b = b->vertex2->cam2d - cam2d;
+				double  h_b = d_b[1]/d_b[0];
+				assert(d_b[0] != 0);
+
+				return h_a < h_b;
+			}
+		);
+	}
+
 };
 
 struct Face
@@ -176,7 +206,20 @@ struct Face
 	static_vector<Edge*, 3> edges;
 };
 
-inline bool Edge::a_is_on_left(const Vertex* a, const Vertex* b)
+inline Edge::Edge(Vertex*v1, Vertex* v2)
+:vertex1(left(v1, v2)),
+ vertex2(right(v1, v2))
+{
+}
+
+inline double Edge::y(double x) const
+{
+	double  gradient = (vertex2->cam2d[1]-vertex1->cam2d[1])/(vertex2->cam2d[0]-vertex1->cam2d[0]);
+
+	return (x - vertex1->cam2d[0]) * gradient;
+}
+
+inline bool Edge::a_is_on_left(const Vertex* a, const Vertex* b) const
 {
 	assert(a->cam2d[0] != b->cam2d[0]);
 	return a->cam2d[0] < b->cam2d[0];
@@ -350,6 +393,10 @@ int main()
 		edge.vertex2->left_edges.push_back(&edge);
 	}
 
+	//Now do the final sorting on the right hand edges of each vertex.
+	for(auto& v:vertices)
+		v.sort_right();
+
 
 	auto cross=[](const Vector<2>& v)
 	{
@@ -368,13 +415,16 @@ int main()
 	
 	for(auto v: vertices)
 	{
+		//Horizontal position of the sweep line
+		double x = v.cam2d[0];
+
 		glClear(GL_COLOR_BUFFER_BIT);
 		debug_draw_all(m, cam, E);
 		glBegin(GL_LINES);
 
 		glColor3f(.5, 0, 0);
-		glVertex2f(v.cam2d[0], 0);
-		glVertex2f(v.cam2d[0], 480);
+		glVertex2f(x, 0);
+		glVertex2f(x, 480);
 
 		for(auto e:v.left_edges)
 		{
@@ -392,9 +442,40 @@ int main()
 			glVertex(e->vertex2->cam2d);
 		}
 
-		//TODO: active edges should be sorted at this point. It can be made
-		//more efficient by makeing sure left_edges is also sorted, which will
-		//reduce the order from O(MN) to O(N)
+
+		//Find the crossings by re-sorting.
+
+		vector<pair<Edge*, Edge*>> crossings;
+
+		//Sort using bubble sort since each exchange corresponds to a crossing.
+		//Thanks, Tom!!!
+		for(int n=active_edges.size(); ;)
+		{
+			bool swapped=false;
+			int new_n=0;
+			
+			for(int i=1; i < n; i++)
+				if(active_edges[i-1]->y(x) > active_edges[i]->y(x))
+				{
+					swap(active_edges[i-1], active_edges[i]);
+					crossings.push_back(make_pair(active_edges[i-1], active_edges[i]));
+					swapped=true;
+					new_n=i;
+				}
+
+			if(!swapped)
+				break;
+			n = new_n;
+		}
+
+
+		//TODO:
+		//
+		//left_edes should all share the same y value at this point, so all that
+		//is required is to find y value and remove everything in the range.
+		//
+		//Though theoretically something else could cross exactly in front of
+		//the vertex, so we need to take a bit of care.
 		for(auto e:v.left_edges)
 		{
 			assert(find(active_edges.begin(), active_edges.end(), e) != active_edges.end());
@@ -416,7 +497,11 @@ int main()
 			active_edges.push_back(e);
 		}
 		//sort
+		//FIXME: we *need* to sort here to make sure
+		//the inserted edges are in the correct place.
 		
+
+		//TODO: draw each crossing in sequence to check we have it right.
 
 		cross(v.cam2d);
 
