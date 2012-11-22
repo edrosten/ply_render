@@ -364,6 +364,8 @@ int main()
 	//At this point we have a sorted list of vertices, 
 	//and faces, vertices and edges with all cross referencing
 	//information.
+	vector<Edge*> active_edges;
+	
 	for(auto v: vertices)
 	{
 		glClear(GL_COLOR_BUFFER_BIT);
@@ -389,6 +391,32 @@ int main()
 			glColor3f(0, 1, 1);
 			glVertex(e->vertex2->cam2d);
 		}
+
+		//TODO: active edges should be sorted at this point. It can be made
+		//more efficient by makeing sure left_edges is also sorted, which will
+		//reduce the order from O(MN) to O(N)
+		for(auto e:v.left_edges)
+		{
+			assert(find(active_edges.begin(), active_edges.end(), e) != active_edges.end());
+			remove(active_edges.begin(), active_edges.end(), e);
+			active_edges.resize(active_edges.size()-1);
+		}
+
+		for(auto e:active_edges)
+		{
+			glColor3f(1, 0, 1);
+			glVertex(e->vertex1->cam2d);
+			glVertex(e->vertex2->cam2d);
+		}
+		
+		//TODO: right edges are all added at the same point. So this could
+		//be made very much more efficient.
+		for(auto e:v.right_edges)
+		{
+			active_edges.push_back(e);
+		}
+		//sort
+		
 
 		cross(v.cam2d);
 
