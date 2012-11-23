@@ -77,6 +77,16 @@ template<class C, size_t Max> class static_vector
 			return data[i];
 		}
 
+		const C* begin() const
+		{
+			return data.begin();
+		}
+
+		const C* end() const
+		{
+			return data.begin() + num;
+		}
+
 		#ifdef DEBUG
 			~static_vector()
 			{
@@ -189,7 +199,7 @@ struct Vertex
 							   //bottom to minimize superfluous sorting at later points.
 							   //Top is smallest y
 
-	void sort_right()
+	void sort()
 	{
 		sort(right_edges.begin(), right_edges.end(), 
 			[&](Edge* a, Edge* b)
@@ -207,6 +217,32 @@ struct Vertex
 
 				Vector<2> d_b = b->vertex2->cam2d - cam2d;
 				double  h_b = d_b[1]/d_b[0];
+				assert(d_b[0] != 0);
+
+				return h_a < h_b;
+			}
+		);
+
+		sort(left_edges.begin(), left_edges.end(), 
+			[&](Edge* a, Edge* b)
+			{
+				assert(a->vertex2 ==this);
+				assert(b->vertex2 ==this);
+				
+				//Calculate the height of a unit triangle as:
+				//h / 1 = -dy / dx
+				//Note the reflection: dx is always <  0
+				//so the unit triangle implies a reflection around x=0
+				//so we need it to ben negated to represent the
+				//-unit triangle.
+				//And sort by h
+
+				Vector<2> d_a = a->vertex2->cam2d - cam2d; 
+				double  h_a = -d_a[1]/d_a[0];
+				assert(d_a[0] != 0);
+
+				Vector<2> d_b = b->vertex2->cam2d - cam2d;
+				double  h_b = -d_b[1]/d_b[0];
 				assert(d_b[0] != 0);
 
 				return h_a < h_b;
@@ -272,6 +308,32 @@ inline bool Edge::a_is_on_left(const Vertex* a, const Vertex* b) const
 }
 
 
+struct Intersection
+{
+	Vector<2> cam2d;
+	Vector<3> front_pos;
+	Vector<3> back_pos;
+	const Edge* front_edge, *back_edge;
+};
+
+struct EdgeSegment
+{
+	Vector<3> a3d, b3d;
+	Vector<2> a2d, b2d;
+};
+
+enum class Visibility
+{
+	Visible, 
+	Hidden, 
+	MaybeVisible
+};
+
+struct ActiveEdge
+{
+	Edge* edge;
+	Visibility previous;
+};
 
 void debug_draw_all(const Model& m, const Camera::Linear& cam, const SE3<>& E)
 {
@@ -442,7 +504,7 @@ int main()
 
 	//Now do the final sorting on the right hand edges of each vertex.
 	for(auto& v:vertices)
-		v.sort_right();
+		v.sort();
 
 
 	auto cross=[](const Vector<2>& v)
@@ -526,9 +588,6 @@ cout << "Hello\n\n";
 			n = new_n;
 		}
 
-		for(const auto& e:active_edges)
-			cout << e->y_at_x_of_unchecked(v) << endl;
-
 		assert(is_sorted(active_edges.begin(), active_edges.end(), debug_order_at_v));
 
 		//Some sanity checks: make sure that ever edge terminating at the current vertex is
@@ -536,6 +595,9 @@ cout << "Hello\n\n";
 		for(auto e:v.left_edges)
 			assert(find(active_edges.begin(), active_edges.end(), e) != active_edges.end());
 		
+
+
+		//WTF
 		
 		//Now remove all left edges from active_edges
 		//
@@ -554,7 +616,49 @@ cout << "Hello\n\n";
 					return e->vertex2 == &v;
 				}),
 			active_edges.end());
+	
+
+
+		//Perform a vertical walk downwards along edges to see which faces come and go
+		//as the walk is performed, until we hit the current vertex.
+		//
+		//Possible TODO: one could perform a walk upwards or downwards, depending on
+		//how close to the top or bottom the current vertex is, for a factor of 2 saving.
+		double vertex_y = v.cam2d[1];
+		unordered_set<Face*> faces_active;
+		for(unsigned int e=0; i < active_edges.size(); e++)
+		{
+			if(vertex_y > e.y_at_x_of(v))
+				break;
+
+			for(auto& f:e->faces)
+			{
+				if(faces_active.count(f))
+					faces_active.erase(f);
+				else
+					faces_active.insert(f);
+			}
+		}
+
+		//Since we're at a vertex, we may have previously added faces 
+		//associted with this vertex. If so, then there must be both a left
+		//and right edge associated with the face at this vertex.
+		//
+		//If a face is active and associated with this vertex, then we
+		//have no remaining active edges associated with the face. So, we
+		//need to explicitly remove all faces associated with this vertex.
+		//
+		//This is because faces associated with the vertex cannot occlude the
+		//vertex.
+		for(auto e:v.left_edges)
+			for(auto f:e.faces)
+				faces_active.remove(f);
+
+		//Now, we need to check the vertex against all remaining active planes to 
+		//see if it is occluded.
+
 		
+
 
 		//Some sanity checks: no left edges should remain active.
 		for(auto e:v.left_edges)
@@ -582,14 +686,60 @@ cout << "Hello\n\n";
 		active_edges.insert(here, v.right_edges.begin(), v.right_edges.end());
 
 		assert(is_sorted(active_edges.begin(), active_edges.end(), debug_order_at_v));
+		
+		
 
-		//TODO: draw each crossing in sequence to check we have it right.
 
-		cross(v.cam2d);
+
+
+
+
+
+
+
+
+
+
+
+		//Lolhack;
+		int n = &v - &*vertices.begin();
+		if(n > 0)
+		{
+			glColor3f(.5, 0, 0);
+			glVertex2f(vertices[n-1].cam2d[0], 0);
+			glVertex2f(vertices[n-1].cam2d[0], 480);
+		}
 
 		glEnd();
 		glFlush();
 		cin.get();
+
+
+		for(auto c: crossings)
+		{
+			glBegin(GL_LINES);
+			glColor3f(1, 0, 1);
+			for(auto c:crossings)
+			{
+				glVertex(c.first->vertex1->cam2d);
+				glVertex(c.first->vertex2->cam2d);
+				glVertex(c.second->vertex1->cam2d);
+				glVertex(c.second->vertex2->cam2d);
+			}
+
+			glColor3f(1, 1, 1);
+			glVertex(c.first->vertex1->cam2d);
+			glVertex(c.first->vertex2->cam2d);
+			glVertex(c.second->vertex1->cam2d);
+			glVertex(c.second->vertex2->cam2d);
+
+
+			glEnd();
+			glFlush();
+			cin.get();
+
+		}
+		cross(v.cam2d);
 
 	}
 
