@@ -114,8 +114,24 @@ struct Edge
 
 	inline Edge(Vertex*v1, Vertex* v2);
 
-	//y as a function of x
-	inline double y(double x) const;
+	//y as a function of x, where x is the x position
+	//of a specified vertex. The entire vertex is supplied so that
+	//the y vaule is if v_x is the terminating vertex of the line.
+	//
+	//With some care, this means that sorting a list of edges by y value
+	//will mean that:
+	//1: all edges terminating at vertex corresponding to a
+	//   sweep line will be contiguous after the sort. 
+	//2: the correct y value can be found efficiently by binary search.
+	//
+	//Additionally, it allows for some good sanity checks.
+	inline double y_at_x_of(const Vertex& v_x) const;
+
+	//Special version with no error checking to allow use in
+	//std::is_sorted
+	inline double y_at_x_of_unchecked(const Vertex& v_x) const;
+
+
 
 	#ifdef DEBUG
 		~Edge()
@@ -212,11 +228,41 @@ inline Edge::Edge(Vertex*v1, Vertex* v2)
 {
 }
 
-inline double Edge::y(double x) const
+inline double Edge::y_at_x_of(const Vertex& v_x) const
 {
-	double  gradient = (vertex2->cam2d[1]-vertex1->cam2d[1])/(vertex2->cam2d[0]-vertex1->cam2d[0]);
+	//We should never be interpolating the y value if we're at
+	//the start vertex.
+	assert(&v_x != vertex1);
+	
+	//Special case for the end vertex to ensure 100% accuracy.
+	//necessary for using equal_range etc over y values.
+	if(&v_x == vertex2)
+		return vertex2->cam2d[1];
+	else
+	{
+		double x = v_x.cam2d[0];	
+		//Check that we're never extrapolating, and never
+		//actually at one of our vertices by this point.
+		assert(x > vertex1->cam2d[0]);
+		assert(x < vertex2->cam2d[0]);
+		return y_at_x_of_unchecked(v_x);
+	}
+}
 
-	return (x - vertex1->cam2d[0]) * gradient;
+inline double Edge::y_at_x_of_unchecked(const Vertex& v_x) const
+{
+	double x = v_x.cam2d[0];	
+	assert(x >= vertex1->cam2d[0]);
+	assert(x <= vertex2->cam2d[0]);
+
+	double Dy = vertex2->cam2d[1]-vertex1->cam2d[1];
+	double Dx = vertex2->cam2d[0]-vertex1->cam2d[0];
+	double dx = x - vertex1->cam2d[0];
+
+	assert(dx >= 0);
+	assert(Dx > 0);
+
+	return dx * Dy / Dx + vertex1->cam2d[1];
 }
 
 inline bool Edge::a_is_on_left(const Vertex* a, const Vertex* b) const
@@ -224,6 +270,7 @@ inline bool Edge::a_is_on_left(const Vertex* a, const Vertex* b) const
 	assert(a->cam2d[0] != b->cam2d[0]);
 	return a->cam2d[0] < b->cam2d[0];
 }
+
 
 
 void debug_draw_all(const Model& m, const Camera::Linear& cam, const SE3<>& E)
@@ -408,13 +455,21 @@ int main()
 		glVertex(v+makeVector(0, -size));
 	};
 
-	//At this point we have a sorted list of vertices, 
+	//At this point we have a sorted list of vertices (left to right), 
 	//and faces, vertices and edges with all cross referencing
 	//information.
 	vector<Edge*> active_edges;
 	
-	for(auto v: vertices)
+	for(const auto& v: vertices)
 	{
+
+cout << "Hello\n\n";
+
+		auto debug_order_at_v = [&](const Edge* e1, const Edge* e2)
+		{
+			return e1->y_at_x_of_unchecked(v) < e2->y_at_x_of_unchecked(v);
+		};
+
 		//Horizontal position of the sweep line
 		double x = v.cam2d[0];
 
@@ -444,10 +499,10 @@ int main()
 
 
 		//Find the crossings by re-sorting.
-
 		vector<pair<Edge*, Edge*>> crossings;
 
-		//Sort using bubble sort since each exchange corresponds to a crossing.
+		//Sort edges top to bottom according to the intersection with the sweep
+		//line using bubble sort since each exchange corresponds to a crossing.
 		//Thanks, Tom!!!
 		for(int n=active_edges.size(); ;)
 		{
@@ -455,33 +510,55 @@ int main()
 			int new_n=0;
 			
 			for(int i=1; i < n; i++)
-				if(active_edges[i-1]->y(x) > active_edges[i]->y(x))
+			{
+				if(active_edges[i-1]->y_at_x_of(v) > active_edges[i]->y_at_x_of(v))
 				{
 					swap(active_edges[i-1], active_edges[i]);
 					crossings.push_back(make_pair(active_edges[i-1], active_edges[i]));
 					swapped=true;
 					new_n=i;
+
 				}
+			}
 
 			if(!swapped)
 				break;
 			n = new_n;
 		}
 
+		for(const auto& e:active_edges)
+			cout << e->y_at_x_of_unchecked(v) << endl;
 
-		//TODO:
-		//
-		//left_edes should all share the same y value at this point, so all that
-		//is required is to find y value and remove everything in the range.
-		//
-		//Though theoretically something else could cross exactly in front of
-		//the vertex, so we need to take a bit of care.
+		assert(is_sorted(active_edges.begin(), active_edges.end(), debug_order_at_v));
+
+		//Some sanity checks: make sure that ever edge terminating at the current vertex is
+		//active.
 		for(auto e:v.left_edges)
-		{
 			assert(find(active_edges.begin(), active_edges.end(), e) != active_edges.end());
-			remove(active_edges.begin(), active_edges.end(), e);
-			active_edges.resize(active_edges.size()-1);
-		}
+		
+		
+		//Now remove all left edges from active_edges
+		//
+		//Note that this is O(Num_of_active_edges). IF active_edges was a list
+		//and IF vertex kept a record of iterators of its left edges in active_edges
+		//then we could just remove the individual edges in O(Num_left_edges) time
+		//instead of O(Num_of_active_edges). 
+		//
+		//However, the above bubble sort is at best O(Num_of_active_edges)
+		//anyway, so we could never reduce the order of this section. Since using a list
+		//would worsen the constant greatly, using a list would almost certainly
+		active_edges.erase(
+			remove_if(active_edges.begin(), active_edges.end(), 
+				[&](const Edge* e)
+				{
+					return e->vertex2 == &v;
+				}),
+			active_edges.end());
+		
+
+		//Some sanity checks: no left edges should remain active.
+		for(auto e:v.left_edges)
+			assert(find(active_edges.begin(), active_edges.end(), e) == active_edges.end());
 
 		for(auto e:active_edges)
 		{
@@ -489,17 +566,22 @@ int main()
 			glVertex(e->vertex1->cam2d);
 			glVertex(e->vertex2->cam2d);
 		}
-		
-		//TODO: right edges are all added at the same point. So this could
-		//be made very much more efficient.
-		for(auto e:v.right_edges)
-		{
-			active_edges.push_back(e);
-		}
-		//sort
-		//FIXME: we *need* to sort here to make sure
-		//the inserted edges are in the correct place.
-		
+
+		//Edges are sorted top to bottom by intersection with the 
+		//sweep line. Find the position to insert the new edges.
+		//
+		//upper bound returns a pointer to the first element greater
+		//than the y coordinate. vector::insert will insert just before
+		//this iterator.
+		auto here = upper_bound(active_edges.begin(), active_edges.end(), v.cam2d[1],
+								[&](double y, Edge* e)
+								{
+									return y < e->y_at_x_of(v);
+								}
+					);
+		active_edges.insert(here, v.right_edges.begin(), v.right_edges.end());
+
+		assert(is_sorted(active_edges.begin(), active_edges.end(), debug_order_at_v));
 
 		//TODO: draw each crossing in sequence to check we have it right.
 
