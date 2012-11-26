@@ -6,8 +6,11 @@
 #include <algorithm>
 #include <exception>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 #include <iomanip>
 #include <TooN/se3.h>
+#include <TooN/SymEigen.h>
 #include <tag/stdpp.h>
 using namespace CVD;
 using namespace std;
@@ -187,8 +190,10 @@ pair<const Vertex*, const Vertex*> order(const Vertex* a, const Vertex* b)
 
 struct Vertex
 {
+	Vector<3> world;
 	Vector<3> cam3d; //3d vertex position in camera coordinates
-	Vector<2> cam2d; //2d veretx position in camera pixel coordinates
+	Vector<2> cam2d; //2d veretx position in ideal camera coordinates
+	Vector<2> pixel; //projected image coordinates
 	int index; //Which vertex is this?
 
 	vector<Edge*> left_edges; //List of edges to the left of the current point
@@ -201,7 +206,7 @@ struct Vertex
 
 	void sort()
 	{
-		sort(right_edges.begin(), right_edges.end(), 
+		std::sort(right_edges.begin(), right_edges.end(), 
 			[&](Edge* a, Edge* b)
 			{
 				assert(a->vertex1 ==this);
@@ -223,7 +228,7 @@ struct Vertex
 			}
 		);
 
-		sort(left_edges.begin(), left_edges.end(), 
+		std::sort(left_edges.begin(), left_edges.end(), 
 			[&](Edge* a, Edge* b)
 			{
 				assert(a->vertex2 ==this);
@@ -237,11 +242,12 @@ struct Vertex
 				//-unit triangle.
 				//And sort by h
 
-				Vector<2> d_a = a->vertex2->cam2d - cam2d; 
+
+				Vector<2> d_a = a->vertex1->cam2d - cam2d; 
 				double  h_a = -d_a[1]/d_a[0];
 				assert(d_a[0] != 0);
 
-				Vector<2> d_b = b->vertex2->cam2d - cam2d;
+				Vector<2> d_b = b->vertex1->cam2d - cam2d;
 				double  h_b = -d_b[1]/d_b[0];
 				assert(d_b[0] != 0);
 
@@ -256,6 +262,73 @@ struct Face
 {
 	Array<Vertex*,3> vertices;
 	static_vector<Edge*, 3> edges;
+	Vector<4> plane;
+	Vector<4> cam_plane;
+
+	void compute_normals(const SE3<>& E)
+	{
+
+		//In the current implementation (above)
+		//we only have triangles, so we could comput the normal as the
+		//cross product of the vertices. However, computing the covariance about
+		//a point is more general and will work if we ever switch to 
+		//a model not just involving triangles.
+		//
+		//Any point will do (the centre is conventional), so we pick the
+		//first point. This is equivalent including a model reflected about this
+		//point.
+		//
+		//It incurs only a linear cost at model build time.
+		Matrix<3> M = Zeros;
+
+		for(unsigned int i=1; i < vertices.size(); i++)
+		{
+			Vector<3> v = vertices[i]->world - vertices[0]->world;
+			M += v.as_col() * v.as_row();
+		}
+		
+		SymEigen<3> eig(M);
+		
+		//points on a plane p, obey (p - p0) . n = 0
+		//
+		//or, in homogenous coordinates
+		//
+		// (px px pz ps) * ( n1 n2 n3  -p0.n) = 0
+		//
+		plane.slice<0,3>() = eig.get_evectors()[0];
+		plane[3] = -vertices[0]->world * eig.get_evectors()[0];
+		
+		//The camera plane goes by the inverse because
+		//
+		// A plane is defined (in homogeneous coordinates) as x.p = 0
+		// x is transformed by E, so what happens to p?
+		// (Ex).(Tp) = 0
+		// (xE)^t (Tp) = 0
+		// T = inv(E)
+		cam_plane = E.inverse() * plane;
+	}
+
+	double depth(const Vector<2>& cam2d) const
+	{
+		//Compute intersection
+		//
+		//points on a plane p, obey (p - p0) . n = 0
+		//A line is defined by l = e + lambda f
+		//Let l=p and solve gives:
+		//
+		//lambda = (p0 - e).n / (f * n) = (p0.n - e.n) / f.n
+
+		//The ray through the camera goes through the origin, 
+		//so e=0, giving 
+		//
+		//lambda = p0.n / f.n
+		//
+		//From compute_normals() above, the plane equation is stored as:
+		//cam_plane = (n1 n2 n3 -p0.n)
+		//
+		//so:
+		return -cam_plane[3] / (unproject(cam2d) * cam_plane.slice<0,3>());
+	}
 };
 
 inline Edge::Edge(Vertex*v1, Vertex* v2)
@@ -333,6 +406,8 @@ struct ActiveEdge
 {
 	Edge* edge;
 	Visibility previous;
+	unordered_set<Face*> occluding_faces;
+	int occlusion_depth;
 };
 
 void debug_draw_all(const Model& m, const Camera::Linear& cam, const SE3<>& E)
@@ -382,8 +457,10 @@ vector<Vertex> get_sorted_list_of_camera_vertices_without_edges(const Camera::Li
 	vector<Vertex> vertices(model_vertices.size());
 	for(size_t i=0; i < vertices.size(); i++)
 	{
+		vertices[i].world = model_vertices[i];
 		vertices[i].cam3d = E*model_vertices[i];
-		vertices[i].cam2d = cam.project(project(vertices[i].cam3d));
+		vertices[i].cam2d = project(vertices[i].cam3d);
+		vertices[i].pixel = cam.project(vertices[i].cam2d);
 		vertices[i].index = i;
 	}
 	
@@ -506,6 +583,9 @@ int main()
 	for(auto& v:vertices)
 		v.sort();
 
+	//Compute the face normals
+	for(auto& f:faces)
+		f.compute_normals(E);
 
 	auto cross=[](const Vector<2>& v)
 	{
@@ -540,23 +620,23 @@ cout << "Hello\n\n";
 		glBegin(GL_LINES);
 
 		glColor3f(.5, 0, 0);
-		glVertex2f(x, 0);
-		glVertex2f(x, 480);
+		glVertex2f(v.pixel[0], 0);
+		glVertex2f(v.pixel[0], 480);
 
 		for(auto e:v.left_edges)
 		{
 			glColor3f(1, 1, 0);
-			glVertex(e->vertex1->cam2d);
+			glVertex(e->vertex1->pixel);
 			glColor3f(0, 1, 0);
-			glVertex(e->vertex2->cam2d);
+			glVertex(e->vertex2->pixel);
 		}
 
 		for(auto e:v.right_edges)
 		{
 			glColor3f(0, 1, 0);
-			glVertex(e->vertex1->cam2d);
+			glVertex(e->vertex1->pixel);
 			glColor3f(0, 1, 1);
-			glVertex(e->vertex2->cam2d);
+			glVertex(e->vertex2->pixel);
 		}
 
 
@@ -597,8 +677,6 @@ cout << "Hello\n\n";
 		
 
 
-		//WTF
-		
 		//Now remove all left edges from active_edges
 		//
 		//Note that this is O(Num_of_active_edges). IF active_edges was a list
@@ -617,18 +695,22 @@ cout << "Hello\n\n";
 				}),
 			active_edges.end());
 	
-
-
+glEnd();
+glFlush();
+cin.get();
 		//Perform a vertical walk downwards along edges to see which faces come and go
 		//as the walk is performed, until we hit the current vertex.
 		//
 		//Possible TODO: one could perform a walk upwards or downwards, depending on
 		//how close to the top or bottom the current vertex is, for a factor of 2 saving.
 		double vertex_y = v.cam2d[1];
-		unordered_set<Face*> faces_active;
-		for(unsigned int e=0; i < active_edges.size(); e++)
+		unordered_set<const Face*> faces_active;
+		for(const auto& e:active_edges)
 		{
-			if(vertex_y > e.y_at_x_of(v))
+
+cout << "." << endl;
+
+			if(vertex_y > e->y_at_x_of(v))
 				break;
 
 			for(auto& f:e->faces)
@@ -639,6 +721,8 @@ cout << "Hello\n\n";
 					faces_active.insert(f);
 			}
 		}
+
+cout << faces_active.size() << endl;
 
 		//Since we're at a vertex, we may have previously added faces 
 		//associted with this vertex. If so, then there must be both a left
@@ -651,14 +735,25 @@ cout << "Hello\n\n";
 		//This is because faces associated with the vertex cannot occlude the
 		//vertex.
 		for(auto e:v.left_edges)
-			for(auto f:e.faces)
-				faces_active.remove(f);
+			for(auto f:e->faces)
+				faces_active.erase(f);
 
 		//Now, we need to check the vertex against all remaining active planes to 
 		//see if it is occluded.
 
-		
 
+bool hidden;
+
+		cout << "Num active faces: " << faces_active.size() << endl;
+		unordered_set<Face*> occluders;
+		for(auto f: faces_active)
+		{
+			double depth = f->depth(v.cam2d);
+			if(depth < v.cam3d[2])
+				hidden=1;
+		}
+		
+cout << "Hidden = " << hidden << endl;
 
 		//Some sanity checks: no left edges should remain active.
 		for(auto e:v.left_edges)
@@ -667,8 +762,8 @@ cout << "Hello\n\n";
 		for(auto e:active_edges)
 		{
 			glColor3f(1, 0, 1);
-			glVertex(e->vertex1->cam2d);
-			glVertex(e->vertex2->cam2d);
+			glVertex(e->vertex1->pixel);
+			glVertex(e->vertex2->pixel);
 		}
 
 		//Edges are sorted top to bottom by intersection with the 
@@ -700,14 +795,14 @@ cout << "Hello\n\n";
 
 
 
-
+		glBegin(GL_LINES);
 		//Lolhack;
 		int n = &v - &*vertices.begin();
 		if(n > 0)
 		{
 			glColor3f(.5, 0, 0);
-			glVertex2f(vertices[n-1].cam2d[0], 0);
-			glVertex2f(vertices[n-1].cam2d[0], 480);
+			glVertex2f(vertices[n-1].pixel[0], 0);
+			glVertex2f(vertices[n-1].pixel[0], 480);
 		}
 
 		glEnd();
@@ -721,17 +816,17 @@ cout << "Hello\n\n";
 			glColor3f(1, 0, 1);
 			for(auto c:crossings)
 			{
-				glVertex(c.first->vertex1->cam2d);
-				glVertex(c.first->vertex2->cam2d);
-				glVertex(c.second->vertex1->cam2d);
-				glVertex(c.second->vertex2->cam2d);
+				glVertex(c.first->vertex1->pixel);
+				glVertex(c.first->vertex2->pixel);
+				glVertex(c.second->vertex1->pixel);
+				glVertex(c.second->vertex2->pixel);
 			}
 
 			glColor3f(1, 1, 1);
-			glVertex(c.first->vertex1->cam2d);
-			glVertex(c.first->vertex2->cam2d);
-			glVertex(c.second->vertex1->cam2d);
-			glVertex(c.second->vertex2->cam2d);
+			glVertex(c.first->vertex1->pixel);
+			glVertex(c.first->vertex2->pixel);
+			glVertex(c.second->vertex1->pixel);
+			glVertex(c.second->vertex2->pixel);
 
 
 			glEnd();

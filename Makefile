@@ -9,7 +9,7 @@ CXXFLAGS=-Wall -Wextra -O3 -g -ggdb -std=c++0x
 LDFLAGS=-lGVars3 -lcvd 
 else
 CXXFLAGS=-Wall -Wextra -O0 -g -ggdb -std=c++0x -DTOON_CHECK_BOUNDS -D_GLIBCXX_DEBUG
-LDFLAGS=-lGVars3_debug -lcvd_debug 
+LDFLAGS=-lGVars3_debug -lcvd_debug -llapack
 endif
 
 default:render
