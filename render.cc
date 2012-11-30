@@ -350,6 +350,50 @@ struct Face
 		//so:
 		return -cam_plane[3] / (unproject(cam2d) * cam_plane.slice<0,3>());
 	}
+
+	bool plane_hides(const Vector<3>& v) const
+	{
+		//Is this point hidden?
+
+		//Well, how does it compare to the depth?
+		//
+		// If the plane is p1 p2 p3 p4
+		//
+		// Then projecting v and computing the depth of the plane
+		// along the ray is:
+		//
+		//d = - p4 / ( (vx vy vz)/vz . (p1 p2 p3))
+		//
+		//For v to be hidden:
+		//
+		// vz > d
+		//
+		//Giving:
+		//
+		// vz > - p4 / ( (vx vy vz)/vz . (p1 p2 p3))
+		//
+		// Can't rearrange division of a signed thing over an inequality,
+		// so do:
+		//
+		// vz > -      p4
+		//          -------------
+        //           V . P123 / vz
+
+		//             p4
+		//  vz > -  --------------------------------------
+		//           |V.P123| sgn(V.P123) / (|vz| sgn(vz))
+
+		//
+		FIXME;
+		FIXME;
+
+		//
+		// ( (vx vy vz)/vz . (p1 p2 p3)) * vz > -p4
+		//
+		// p1 vx + p2 vy + p3 vz + p4 > 0
+		//
+		return unproject(v)*cam_plane * SIGN STUFF> 0 
+	}
 };
 
 inline Edge::Edge(Vertex*v1, Vertex* v2)
@@ -423,18 +467,10 @@ struct EdgeSegment
 	Vector<2> a2d, b2d;
 };
 
-enum class Visibility
-{
-	Visible, 
-	Hidden, 
-	MaybeVisible
-};
-
 struct ActiveEdge
 {
-	Edge* edge;
-	Visibility previous;
-	unordered_set<Face*> occluding_faces;
+	const Edge* edge;
+	unordered_set<const Face*> occluding_faces;
 	int occlusion_depth;
 };
 
@@ -628,20 +664,20 @@ int main()
 	//At this point we have a sorted list of vertices (left to right), 
 	//and faces, vertices and edges with all cross referencing
 	//information.
-	vector<Edge*> active_edges;
+	vector<ActiveEdge> active_edges;
 	
 	for(const auto& v: vertices)
 	{
 
 cout << "Hello\n\n";
 
-		auto debug_order_at_v = [&](const Edge* e1, const Edge* e2)
+		auto debug_order_at_v = [&](const ActiveEdge& e1, const ActiveEdge& e2)
 		{
-			return e1->y_at_x_of_unchecked(v) < e2->y_at_x_of_unchecked(v);
+			return e1.edge->y_at_x_of_unchecked(v) < e2.edge->y_at_x_of_unchecked(v);
 		};
 
 		//Horizontal position of the sweep line
-		double x = v.cam2d[0];
+		//double x = v.cam2d[0];
 
 		glClear(GL_COLOR_BUFFER_BIT);
 		debug_draw_all(m, cam, E);
@@ -669,11 +705,11 @@ cout << "Hello\n\n";
 
 
 		//Find the crossings by re-sorting.
-		vector<pair<Edge*, Edge*>> crossings;
 
 		//Sort edges top to bottom according to the intersection with the sweep
 		//line using bubble sort since each exchange corresponds to a crossing.
 		//Thanks, Tom!!!
+		vector<pair<const Edge*, const Edge*>> crossings;
 		for(int n=active_edges.size(); ;)
 		{
 			bool swapped=false;
@@ -681,10 +717,10 @@ cout << "Hello\n\n";
 			
 			for(int i=1; i < n; i++)
 			{
-				if(active_edges[i-1]->y_at_x_of(v) > active_edges[i]->y_at_x_of(v))
+				if(active_edges[i-1].edge->y_at_x_of(v) > active_edges[i].edge->y_at_x_of(v))
 				{
 					swap(active_edges[i-1], active_edges[i]);
-					crossings.push_back(make_pair(active_edges[i-1], active_edges[i]));
+					crossings.push_back(make_pair(active_edges[i-1].edge, active_edges[i].edge));
 					swapped=true;
 					new_n=i;
 
@@ -700,8 +736,8 @@ cout << "Hello\n\n";
 
 		//Some sanity checks: make sure that ever edge terminating at the current vertex is
 		//active.
-		for(auto e:v.left_edges)
-			assert(find(active_edges.begin(), active_edges.end(), e) != active_edges.end());
+		for(const auto& e:v.left_edges)
+			assert(find_if(active_edges.begin(), active_edges.end(), [&](const ActiveEdge& a){return a.edge ==e;}) != active_edges.end());
 		
 
 
@@ -717,9 +753,9 @@ cout << "Hello\n\n";
 		//would worsen the constant greatly, using a list would almost certainly
 		active_edges.erase(
 			remove_if(active_edges.begin(), active_edges.end(), 
-				[&](const Edge* e)
+				[&](const ActiveEdge& e)
 				{
-					return e->vertex2 == &v;
+					return e.edge->vertex2 == &v;
 				}),
 			active_edges.end());
 	
@@ -733,10 +769,10 @@ cout << "Hello\n\n";
 		for(const auto& e:active_edges)
 		{
 			
-			if(e->y_at_x_of(v) > vertex_y)
+			if(e.edge->y_at_x_of(v) > vertex_y)
 				break;
 
-			for(auto& f:e->faces)
+			for(auto& f:e.edge->faces)
 			{
 				if(faces_active.count(f))
 					faces_active.erase(f);
@@ -768,7 +804,7 @@ cout << faces_active.size() << endl;
 		int occlusion_depth=0;
 
 		cout << "Num active faces: " << faces_active.size() << endl;
-		unordered_set<Face*> occluders;
+		unordered_set<const Face*> occluders;
 		for(auto f: faces_active)
 		{
 			for(const auto& fv:f->vertices)
@@ -781,20 +817,23 @@ cout << faces_active.size() << endl;
 			cout << f->cam_plane << endl;
 
 			if(depth < v.cam3d[2])
+			{
 				occlusion_depth++;
+				occluders.insert(f);
+			}
 		}
 		
 cout << "Hidden = " << occlusion_depth << endl;
 
 		//Some sanity checks: no left edges should remain active.
 		for(auto e:v.left_edges)
-			assert(find(active_edges.begin(), active_edges.end(), e) == active_edges.end());
+			assert(find_if(active_edges.begin(), active_edges.end(), [&](const ActiveEdge& a){return a.edge ==  e;}) == active_edges.end());
 
 		for(auto e:active_edges)
 		{
 			glColor3f(1, 0, 1);
-			glVertex(e->vertex1->pixel);
-			glVertex(e->vertex2->pixel);
+			glVertex(e.edge->vertex1->pixel);
+			glVertex(e.edge->vertex2->pixel);
 		}
 
 		//Edges are sorted top to bottom by intersection with the 
@@ -804,12 +843,74 @@ cout << "Hidden = " << occlusion_depth << endl;
 		//than the y coordinate. vector::insert will insert just before
 		//this iterator.
 		auto here = upper_bound(active_edges.begin(), active_edges.end(), v.cam2d[1],
-								[&](double y, Edge* e)
+								[&](double y, const ActiveEdge& e)
 								{
-									return y < e->y_at_x_of(v);
+									return y < e.edge->y_at_x_of(v);
 								}
 					);
-		active_edges.insert(here, v.right_edges.begin(), v.right_edges.end());
+
+
+		//Set up the current vertex using all available knowledge
+		//
+		//While we're at it, do a miniture vertical walk to find the occlusion depth of each edge
+		vector<ActiveEdge> right;
+		unordered_set<const Face*> faces_at_vertex;
+
+cout << "Beginning miniture vertical walk...\n";
+
+		for(const Edge* e:v.right_edges)
+		{
+			ActiveEdge a;
+			a.edge = e;
+			a.occluding_faces = occluders;
+			a.occlusion_depth = occlusion_depth;
+
+cout << "Faces : " << faces_at_vertex.size() << endl;
+			//First, remove any faces associated with the current edge
+			vector<const Face*> to_be_added;
+			for(auto& f: e->faces)
+				if(faces_at_vertex.count(f))
+					faces_at_vertex.erase(f);
+				else
+					to_be_added.push_back(f);
+			
+cout << "Faces after removal: " << faces_at_vertex.size() << endl;
+			//Now any remaining faces are active and may or may not hide 
+			//the current edge, depending on the relative angle.
+			//
+			//Obviously v1 is on the face, so we can check whether v2
+			//is hidden by the plane (note plane, not face). This tells
+			//us if the line starts off hidden.
+			for(auto& f:faces_at_vertex)
+			{
+
+cout << e->vertex2->cam3d[2] << endl;
+cout << f->depth(e->vertex2->cam2d) << endl;
+
+				if(f->plane_hides(e->vertex2->cam3d))
+				{
+					//The current active face really shouldn't be in the way already
+					assert(a.occluding_faces.count(f) == 0);
+
+					a.occlusion_depth++;
+					a.occluding_faces.insert(f);
+				}
+			}
+cout << occlusion_depth << " " << a.occlusion_depth << endl;
+				
+
+			//Now insert edges which need to be inserted.
+			for(auto& f:to_be_added)
+				faces_at_vertex.insert(f);
+
+cout << "Adding edge: " << a.occlusion_depth << endl;
+cout << "Faces now: " << faces_at_vertex.size() << endl;
+
+			right.push_back(a);
+cout << "\n\n\n\n";
+		}
+		
+		active_edges.insert(here, right.begin(), right.end());
 
 		assert(is_sorted(active_edges.begin(), active_edges.end(), debug_order_at_v));
 		
