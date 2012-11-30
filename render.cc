@@ -1,3 +1,14 @@
+#define DEBUG
+
+#ifdef DEBUG
+	#ifndef TOON_CHECK_BOUNDS
+		#define TOON_CHECK_BOUNDS
+	#endif
+	#ifndef TOON_INITIALIZE_NAN
+		#define TOON_INITIALIZE_NAN
+	#endif
+#endif
+
 #include "model_loader.h"
 #include <cvd/videodisplay.h>
 #include <cvd/gl_helpers.h>
@@ -28,13 +39,27 @@ vector<pair<int, Vector<2>>> proj(const vector<Vector<3>>& vertices, const SE3<>
 	return ret;
 }
 
+template<class C> void unset(C& c)
+{
+	c=C();
+}
+template<class C*> void unset(C& c)
+{
+	c = reinterpret_cast<C>(0xbadc0ffee0ddf00d);
+}
 
-#define DEBUG
 
+
+
+
+#ifdef DEBUG
 template<class C, size_t Size> class Array: private array<C, Size>
 {
 	public:
 		using array<C, Size>::size;
+		using array<C, Size>::begin;
+		using array<C, Size>::end;
+		using array<C, Size>::value_type;
 
 		C& operator[](size_t i)
 		{
@@ -47,7 +72,13 @@ template<class C, size_t Size> class Array: private array<C, Size>
 			assert(i < Size);
 			return array<C, Size>::operator[](i);
 		}	
+
+
 };
+
+#else
+	template<class C, size_t Size> using Array = std::array<C, Size>;
+#endif
 
 template<class C, size_t Max> class static_vector
 {
@@ -106,16 +137,6 @@ struct Edge;
 struct Face;
 
 
-
-template<class C> void unset(C& c)
-{
-	c=C();
-}
-template<class C*> void unset(C& c)
-{
-	c = reinterpret_cast<C>(0xbadc0ffee0ddf00d);
-}
-
 //Edge structure: an edge consists of two vertices
 //and a list of faces.
 //
@@ -138,7 +159,7 @@ struct Edge
 	//2: the correct y value can be found efficiently by binary search.
 	//
 	//Additionally, it allows for some good sanity checks.
-	inline double y_at_x_of(const Vertex& v_x) const;
+	inline double y_at_x_of(const Vertex& v_x, bool debug_no_checks=false) const;
 
 	//Special version with no error checking to allow use in
 	//std::is_sorted
@@ -304,8 +325,8 @@ struct Face
 		// x is transformed by E, so what happens to p?
 		// (Ex).(Tp) = 0
 		// (xE)^t (Tp) = 0
-		// T = inv(E)
-		cam_plane = E.inverse() * plane;
+		// T = inv(E^t)
+		cam_plane = plane * E.inverse();
 	}
 
 	double depth(const Vector<2>& cam2d) const
@@ -337,12 +358,19 @@ inline Edge::Edge(Vertex*v1, Vertex* v2)
 {
 }
 
-inline double Edge::y_at_x_of(const Vertex& v_x) const
+inline double Edge::y_at_x_of(const Vertex& v_x, bool debug_no_checks) const
 {
+	//In regular code, this function should never be used to at vertex1
+	//In debugging tests, it might be.
+
+
+	//debug_no_checks 
 	//We should never be interpolating the y value if we're at
 	//the start vertex.
-	assert(&v_x != vertex1);
+	if(!debug_no_checks)
+		assert(&v_x != vertex1);
 	
+
 	//Special case for the end vertex to ensure 100% accuracy.
 	//necessary for using equal_range etc over y values.
 	if(&v_x == vertex2)
@@ -352,26 +380,26 @@ inline double Edge::y_at_x_of(const Vertex& v_x) const
 		double x = v_x.cam2d[0];	
 		//Check that we're never extrapolating, and never
 		//actually at one of our vertices by this point.
-		assert(x > vertex1->cam2d[0]);
+		if(!debug_no_checks)
+			assert(x > vertex1->cam2d[0]);
+		assert(x >= vertex1->cam2d[0]);
 		assert(x < vertex2->cam2d[0]);
-		return y_at_x_of_unchecked(v_x);
+
+
+		double Dy = vertex2->cam2d[1]-vertex1->cam2d[1];
+		double Dx = vertex2->cam2d[0]-vertex1->cam2d[0];
+		double dx = x - vertex1->cam2d[0];
+
+		assert(dx >= 0);
+		assert(Dx > 0);
+
+		return dx * Dy / Dx + vertex1->cam2d[1];
 	}
 }
 
 inline double Edge::y_at_x_of_unchecked(const Vertex& v_x) const
 {
-	double x = v_x.cam2d[0];	
-	assert(x >= vertex1->cam2d[0]);
-	assert(x <= vertex2->cam2d[0]);
-
-	double Dy = vertex2->cam2d[1]-vertex1->cam2d[1];
-	double Dx = vertex2->cam2d[0]-vertex1->cam2d[0];
-	double dx = x - vertex1->cam2d[0];
-
-	assert(dx >= 0);
-	assert(Dx > 0);
-
-	return dx * Dy / Dx + vertex1->cam2d[1];
+	return y_at_x_of(v_x, true);
 }
 
 inline bool Edge::a_is_on_left(const Vertex* a, const Vertex* b) const
@@ -695,9 +723,6 @@ cout << "Hello\n\n";
 				}),
 			active_edges.end());
 	
-glEnd();
-glFlush();
-cin.get();
 		//Perform a vertical walk downwards along edges to see which faces come and go
 		//as the walk is performed, until we hit the current vertex.
 		//
@@ -707,10 +732,8 @@ cin.get();
 		unordered_set<const Face*> faces_active;
 		for(const auto& e:active_edges)
 		{
-
-cout << "." << endl;
-
-			if(vertex_y > e->y_at_x_of(v))
+			
+			if(e->y_at_x_of(v) > vertex_y)
 				break;
 
 			for(auto& f:e->faces)
@@ -742,18 +765,26 @@ cout << faces_active.size() << endl;
 		//see if it is occluded.
 
 
-bool hidden;
+		int occlusion_depth=0;
 
 		cout << "Num active faces: " << faces_active.size() << endl;
 		unordered_set<Face*> occluders;
 		for(auto f: faces_active)
 		{
+			for(const auto& fv:f->vertices)
+				assert(fv != &v);
+			
 			double depth = f->depth(v.cam2d);
+
+			cout << depth << "          " << v.cam3d << endl;
+			cout << f->plane << endl;
+			cout << f->cam_plane << endl;
+
 			if(depth < v.cam3d[2])
-				hidden=1;
+				occlusion_depth++;
 		}
 		
-cout << "Hidden = " << hidden << endl;
+cout << "Hidden = " << occlusion_depth << endl;
 
 		//Some sanity checks: no left edges should remain active.
 		for(auto e:v.left_edges)
