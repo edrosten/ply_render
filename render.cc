@@ -383,16 +383,19 @@ struct Face
 		//  vz > -  --------------------------------------
 		//           |V.P123| sgn(V.P123) / (|vz| sgn(vz))
 
+		// Rearranges to:
 		//
-		FIXME;
-		FIXME;
+		// sgn(vz)sgn( v.p123)  (vx vy vz 1).p > 0
 
-		//
-		// ( (vx vy vz)/vz . (p1 p2 p3)) * vz > -p4
-		//
-		// p1 vx + p2 vy + p3 vz + p4 > 0
-		//
-		return unproject(v)*cam_plane * SIGN STUFF> 0 
+	
+		double v_dot_p_normal = v * cam_plane.slice<0,3>();
+		double v_p = v_dot_p_normal + cam_plane[3];
+
+		if( (v_dot_p_normal > 0) == (v[2] > 0))
+			return v_p > 0;
+		else
+			return v_p < 0;
+	
 	}
 };
 
@@ -472,6 +475,9 @@ struct ActiveEdge
 	const Edge* edge;
 	unordered_set<const Face*> occluding_faces;
 	int occlusion_depth;
+	Vector<3> previous_3d;
+	Vector<2> previous_2d;
+	static_vector<Face*, 2> faces_above, faces_below;
 };
 
 void debug_draw_all(const Model& m, const Camera::Linear& cam, const SE3<>& E)
@@ -664,6 +670,15 @@ int main()
 	//At this point we have a sorted list of vertices (left to right), 
 	//and faces, vertices and edges with all cross referencing
 	//information.
+
+		
+	
+	//The final list of edge segments to record.
+	vector<EdgeSegment> output;
+
+
+	//Active adges will the list of edges intersecting with the current
+	//vertival sweep line.
 	vector<ActiveEdge> active_edges;
 	
 	for(const auto& v: vertices)
@@ -720,10 +735,35 @@ cout << "Hello\n\n";
 				if(active_edges[i-1].edge->y_at_x_of(v) > active_edges[i].edge->y_at_x_of(v))
 				{
 					swap(active_edges[i-1], active_edges[i]);
+
+					const Edge* e1 = active_edges[i];
+					const Edge* e2 = active_edges[i-1];
+
+					//Find where the crossing occurs.
+					//
+					//
+
+					Matrix<2> directions;
+					Vector<2> starts;
+
+					directions.T()[0] =  e1->vertex2->cam2d - e1->vertex1->cam2d;
+					directions.T()[1] =  e2->vertex1->cam2d - e2->vertex2->cam2d;
+					starts = e2->vertex1->cam2d - e1-vertex1->cam2d;
+
+					Vector<2> coeffs = inv(directions) * starts;
+						
+					Intersection intersection;
+
+
+					intersection.
+
+
 					crossings.push_back(make_pair(active_edges[i-1].edge, active_edges[i].edge));
+					
+					
+					
 					swapped=true;
 					new_n=i;
-
 				}
 			}
 
@@ -751,6 +791,7 @@ cout << "Hello\n\n";
 		//However, the above bubble sort is at best O(Num_of_active_edges)
 		//anyway, so we could never reduce the order of this section. Since using a list
 		//would worsen the constant greatly, using a list would almost certainly
+		//worsen the overall speed.
 		active_edges.erase(
 			remove_if(active_edges.begin(), active_edges.end(), 
 				[&](const ActiveEdge& e)
@@ -768,7 +809,6 @@ cout << "Hello\n\n";
 		unordered_set<const Face*> faces_active;
 		for(const auto& e:active_edges)
 		{
-			
 			if(e.edge->y_at_x_of(v) > vertex_y)
 				break;
 
@@ -780,8 +820,6 @@ cout << "Hello\n\n";
 					faces_active.insert(f);
 			}
 		}
-
-cout << faces_active.size() << endl;
 
 		//Since we're at a vertex, we may have previously added faces 
 		//associted with this vertex. If so, then there must be both a left
@@ -802,8 +840,6 @@ cout << faces_active.size() << endl;
 
 
 		int occlusion_depth=0;
-
-		cout << "Num active faces: " << faces_active.size() << endl;
 		unordered_set<const Face*> occluders;
 		for(auto f: faces_active)
 		{
@@ -812,10 +848,6 @@ cout << faces_active.size() << endl;
 			
 			double depth = f->depth(v.cam2d);
 
-			cout << depth << "          " << v.cam3d << endl;
-			cout << f->plane << endl;
-			cout << f->cam_plane << endl;
-
 			if(depth < v.cam3d[2])
 			{
 				occlusion_depth++;
@@ -823,8 +855,6 @@ cout << faces_active.size() << endl;
 			}
 		}
 		
-cout << "Hidden = " << occlusion_depth << endl;
-
 		//Some sanity checks: no left edges should remain active.
 		for(auto e:v.left_edges)
 			assert(find_if(active_edges.begin(), active_edges.end(), [&](const ActiveEdge& a){return a.edge ==  e;}) == active_edges.end());
@@ -850,13 +880,17 @@ cout << "Hidden = " << occlusion_depth << endl;
 					);
 
 
-		//Set up the current vertex using all available knowledge
+		//Set up right edges before insreting them, into active_edges.
+		//Note that the complete occlusion depth is required, which cannot be 
+		//inferred purely from the occlusion depth of the vertex.
 		//
-		//While we're at it, do a miniture vertical walk to find the occlusion depth of each edge
+		//Do a miniture vertical walk to find the occlusion depth of each edge
+		//
+		//During this waly, also figure whether faces connect above or below
+		//the edge. 
 		vector<ActiveEdge> right;
 		unordered_set<const Face*> faces_at_vertex;
 
-cout << "Beginning miniture vertical walk...\n";
 
 		for(const Edge* e:v.right_edges)
 		{
@@ -864,17 +898,23 @@ cout << "Beginning miniture vertical walk...\n";
 			a.edge = e;
 			a.occluding_faces = occluders;
 			a.occlusion_depth = occlusion_depth;
+			a.previous_3d=v.cam3d;
+			a.previous_2d=v.cam2d;
 
-cout << "Faces : " << faces_at_vertex.size() << endl;
 			//First, remove any faces associated with the current edge
 			vector<const Face*> to_be_added;
 			for(auto& f: e->faces)
 				if(faces_at_vertex.count(f))
+				{
 					faces_at_vertex.erase(f);
+					a.faces_above.push_back(f);
+				}
 				else
+				{
 					to_be_added.push_back(f);
+					a.faces_below.push_back(f);
+				}
 			
-cout << "Faces after removal: " << faces_at_vertex.size() << endl;
 			//Now any remaining faces are active and may or may not hide 
 			//the current edge, depending on the relative angle.
 			//
@@ -883,9 +923,6 @@ cout << "Faces after removal: " << faces_at_vertex.size() << endl;
 			//us if the line starts off hidden.
 			for(auto& f:faces_at_vertex)
 			{
-
-cout << e->vertex2->cam3d[2] << endl;
-cout << f->depth(e->vertex2->cam2d) << endl;
 
 				if(f->plane_hides(e->vertex2->cam3d))
 				{
@@ -896,18 +933,12 @@ cout << f->depth(e->vertex2->cam2d) << endl;
 					a.occluding_faces.insert(f);
 				}
 			}
-cout << occlusion_depth << " " << a.occlusion_depth << endl;
-				
 
 			//Now insert edges which need to be inserted.
 			for(auto& f:to_be_added)
 				faces_at_vertex.insert(f);
 
-cout << "Adding edge: " << a.occlusion_depth << endl;
-cout << "Faces now: " << faces_at_vertex.size() << endl;
-
 			right.push_back(a);
-cout << "\n\n\n\n";
 		}
 		
 		active_edges.insert(here, right.begin(), right.end());
