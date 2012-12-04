@@ -724,7 +724,7 @@ cout << "Hello\n\n";
 		//Sort edges top to bottom according to the intersection with the sweep
 		//line using bubble sort since each exchange corresponds to a crossing.
 		//Thanks, Tom!!!
-		vector<pair<const Edge*, const Edge*>> crossings;
+		vector<Intersection> crossings;
 		for(int n=active_edges.size(); ;)
 		{
 			bool swapped=false;
@@ -736,31 +736,63 @@ cout << "Hello\n\n";
 				{
 					swap(active_edges[i-1], active_edges[i]);
 
-					const Edge* e1 = active_edges[i];
-					const Edge* e2 = active_edges[i-1];
+					const Edge* e1 = active_edges[i].edge;
+					const Edge* e2 = active_edges[i-1].edge;
 
 					//Find where the crossing occurs.
 					//
+					//We know that straight lines project to straight lines. If we have
+					//in 3D X = A + lambda B, then two projection points are l=0 and 
+					//l = infinity (start and vanishing point) giving:
+					// x_0 = P(A), x_inf = P(B)
 					//
+					//So the line in 2D is:
+					//
+					// x = b + delta (a-b)
+					//
+					// d = A3 / (A3 + l * B3)
 
-					Matrix<2> directions;
-					Vector<2> starts;
+					Vector<3> A = e1->vertex1->cam3d; //First point
+					Vector<3> B = e1->vertex1->cam3d - e1->vertex2->cam3d; //Direction
+					Vector<2> b = project(B); //direction of the line in 2D
+					Vector<2> a = e1->vertex1->cam2d - b; //Projection of first point
 
-					directions.T()[0] =  e1->vertex2->cam2d - e1->vertex1->cam2d;
-					directions.T()[1] =  e2->vertex1->cam2d - e2->vertex2->cam2d;
-					starts = e2->vertex1->cam2d - e1-vertex1->cam2d;
+					Vector<3> C = e2->vertex1->cam3d;
+					Vector<3> D = e2->vertex1->cam3d - e2->vertex2->cam3d;
+					Vector<2> d = project(D);
+					Vector<2> c = e2->vertex1->cam2d - d;
 
-					Vector<2> coeffs = inv(directions) * starts;
-						
+					Matrix<2> m;
+					m.T()[0] = a;
+					m.T()[1] = -c;
+
+					Vector<2> coeff = inv(m) * (d-b);
+					
 					Intersection intersection;
+					intersection.cam2d = coeff[0] * a + b;
 
+					double lambda = (A[2] - coeff[0] * A[2]) / (coeff[0] * B[2]);
+					double delta  = (C[2] - coeff[1] * C[2]) / (coeff[1] * D[2]);
 
-					intersection.
+					Vector<3> e1_pos = (A + lambda * B);
+					Vector<3> e2_pos = (C + delta  * D);
 
+					if(e1_pos[2] < e2_pos[2])
+					{
+						intersection.front_edge = e1;
+						intersection.back_edge = e2;
+						intersection.front_pos = e1_pos;
+						intersection.back_pos = e2_pos;
+					}
+					else
+					{
+						intersection.front_edge = e2;
+						intersection.back_edge = e1;
+						intersection.front_pos = e2_pos;
+						intersection.back_pos = e1_pos;
+					}
 
-					crossings.push_back(make_pair(active_edges[i-1].edge, active_edges[i].edge));
-					
-					
+					crossings.push_back(intersection);
 					
 					swapped=true;
 					new_n=i;
@@ -771,10 +803,29 @@ cout << "Hello\n\n";
 				break;
 			n = new_n;
 		}
-
 		assert(is_sorted(active_edges.begin(), active_edges.end(), debug_order_at_v));
 
-		//Some sanity checks: make sure that ever edge terminating at the current vertex is
+		//Sort the intersections left to right. Given there are up to n^2 intersections
+		//this is at worst (n log n)^2
+		//
+		//
+		//Thisis so we can alter the visibility of the segments left to right as 
+		//they change. In principle, we could improve the order by finding all edges
+		//with intersections in front of them and doing a per-edge sort.
+		//Naturally, edges in front without faces should be ignored.
+		//
+		//We'll try that is the following sort ever proves too slow!
+		sort(crossings.begin(), crossings.end(), 
+			[](const Intersection& a, const Intersection& b)
+			{
+				return a.cam2d[0] < b.cam2d[0];
+			});
+
+
+		//FIXME;
+
+
+		//Some sanity checks: make sure that every edge terminating at the current vertex is
 		//active.
 		for(const auto& e:v.left_edges)
 			assert(find_if(active_edges.begin(), active_edges.end(), [&](const ActiveEdge& a){return a.edge ==e;}) != active_edges.end());
@@ -979,25 +1030,28 @@ cout << "Hello\n\n";
 			glColor3f(1, 0, 1);
 			for(auto c:crossings)
 			{
-				glVertex(c.first->vertex1->pixel);
-				glVertex(c.first->vertex2->pixel);
-				glVertex(c.second->vertex1->pixel);
-				glVertex(c.second->vertex2->pixel);
+				glVertex(c.front_edge->vertex1->pixel);
+				glVertex(c.front_edge->vertex2->pixel);
+				glVertex(c.back_edge->vertex1->pixel);
+				glVertex(c.back_edge->vertex2->pixel);
 			}
 
 			glColor3f(1, 1, 1);
-			glVertex(c.first->vertex1->pixel);
-			glVertex(c.first->vertex2->pixel);
-			glVertex(c.second->vertex1->pixel);
-			glVertex(c.second->vertex2->pixel);
+			glVertex(c.front_edge->vertex1->pixel);
+			glVertex(c.front_edge->vertex2->pixel);
+			glColor3f(.5, .5, .5);
+			glVertex(c.back_edge->vertex1->pixel);
+			glVertex(c.back_edge->vertex2->pixel);
+			
 
+			cross(cam.project(c.cam2d));
 
 			glEnd();
 			glFlush();
 			cin.get();
 
 		}
-		cross(v.cam2d);
+		//cross(v.cam2d);
 
 	}
 
