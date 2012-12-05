@@ -48,6 +48,11 @@ template<class C*> void unset(C& c)
 	c = reinterpret_cast<C>(0xbadc0ffee0ddf00d);
 }
 
+template<int I> void unset(Vector<I>& v)
+{
+	for(int i=0; i < I; i++)
+		v[i] = -1.005360053e99;
+}
 
 
 
@@ -456,14 +461,6 @@ inline bool Edge::a_is_on_left(const Vertex* a, const Vertex* b) const
 }
 
 
-struct Intersection
-{
-	Vector<2> cam2d;
-	Vector<3> front_pos;
-	Vector<3> back_pos;
-	const Edge* front_edge, *back_edge;
-};
-
 struct EdgeSegment
 {
 	Vector<3> a3d, b3d;
@@ -478,8 +475,18 @@ struct ActiveEdge
 	Vector<3> previous_3d;
 	Vector<2> previous_2d;
 	static_vector<Face*, 2> faces_above, faces_below;
+	int index;
 };
 
+
+struct Intersection
+{
+	Vector<2> cam2d;
+	Vector<3> front_pos;
+	Vector<3> back_pos;
+	
+	int front_edge, back_edge;
+};
 void debug_draw_all(const Model& m, const Camera::Linear& cam, const SE3<>& E)
 {
 	double minz=1e99, maxz=-1e99;
@@ -720,6 +727,14 @@ cout << "Hello\n\n";
 
 
 		//Find the crossings by re-sorting.
+		//
+		//Note that each crossing needs to store a reference to 
+		//an ActiveEdge, but the active edges are being constantly
+		//moved during the sort. So, we need to refer to each by a unique
+		//identifier. So, give each one a unique integer and use this as
+		//the basis of a lookup later.
+		for(unsigned int i=0; i < active_edges.size(); i++)
+			active_edges[i].index=i;
 
 		//Sort edges top to bottom according to the intersection with the sweep
 		//line using bubble sort since each exchange corresponds to a crossing.
@@ -736,8 +751,8 @@ cout << "Hello\n\n";
 				{
 					swap(active_edges[i-1], active_edges[i]);
 
-					const Edge* e1 = active_edges[i].edge;
-					const Edge* e2 = active_edges[i-1].edge;
+					const ActiveEdge& e1 = active_edges[i];
+					const ActiveEdge& e2 = active_edges[i-1];
 
 					//Find where the crossing occurs.
 					//
@@ -751,16 +766,17 @@ cout << "Hello\n\n";
 					// x = b + delta (a-b)
 					//
 					// d = A3 / (A3 + l * B3)
+					//
 
-					Vector<3> A = e1->vertex1->cam3d; //First point
-					Vector<3> B = e1->vertex1->cam3d - e1->vertex2->cam3d; //Direction
-					Vector<2> b = project(B); //direction of the line in 2D
-					Vector<2> a = e1->vertex1->cam2d - b; //Projection of first point
+					Vector<3> A = e1.edge->vertex1->cam3d; //First point
+					Vector<3> B = e1.edge->vertex1->cam3d - e1.edge->vertex2->cam3d; //Direction
+					Vector<2> b = project(B); //Start point of the line in 2D (the vanishing point)
+					Vector<2> a = e1.edge->vertex1->cam2d - b; //Direction of the line in 2D
 
-					Vector<3> C = e2->vertex1->cam3d;
-					Vector<3> D = e2->vertex1->cam3d - e2->vertex2->cam3d;
+					Vector<3> C = e2.edge->vertex1->cam3d;
+					Vector<3> D = e2.edge->vertex1->cam3d - e2.edge->vertex2->cam3d;
 					Vector<2> d = project(D);
-					Vector<2> c = e2->vertex1->cam2d - d;
+					Vector<2> c = e2.edge->vertex1->cam2d - d;
 
 					Matrix<2> m;
 					m.T()[0] = a;
@@ -779,15 +795,15 @@ cout << "Hello\n\n";
 
 					if(e1_pos[2] < e2_pos[2])
 					{
-						intersection.front_edge = e1;
-						intersection.back_edge = e2;
+						intersection.front_edge = e1.index;
+						intersection.back_edge = e2.index;
 						intersection.front_pos = e1_pos;
 						intersection.back_pos = e2_pos;
 					}
 					else
 					{
-						intersection.front_edge = e2;
-						intersection.back_edge = e1;
+						intersection.front_edge = e2.index;
+						intersection.back_edge = e1.index;
 						intersection.front_pos = e2_pos;
 						intersection.back_pos = e1_pos;
 					}
@@ -805,11 +821,16 @@ cout << "Hello\n\n";
 		}
 		assert(is_sorted(active_edges.begin(), active_edges.end(), debug_order_at_v));
 
+
+		//Now create an ActiveEdge lookup based on the indices.
+		vector<const ActiveEdge*> active_edge_lookup(active_edges.size());
+		for(const auto& a:active_edges)
+			active_edge_lookup[a.index] = &a;
+
 		//Sort the intersections left to right. Given there are up to n^2 intersections
 		//this is at worst (n log n)^2
 		//
-		//
-		//Thisis so we can alter the visibility of the segments left to right as 
+		//This is so we can alter the visibility of the segments left to right as 
 		//they change. In principle, we could improve the order by finding all edges
 		//with intersections in front of them and doing a per-edge sort.
 		//Naturally, edges in front without faces should be ignored.
@@ -822,7 +843,27 @@ cout << "Hello\n\n";
 			});
 
 
-		//FIXME;
+struct b0l0x
+{
+	const Edge* front_edge, *back_edge;
+	Vector<2> cam2d;
+};
+vector<b0l0x> crs;
+for(const auto& c:crossings)
+{
+	b0l0x b = {active_edge_lookup[c.front_edge]->edge, active_edge_lookup[c.back_edge]->edge, c.cam2d};
+	crs.push_back(b);
+}
+
+		
+		//Now process the crossings
+		for(const auto& c: crossings)
+		{
+			//Obviously 
+
+
+
+		}
 
 
 		//Some sanity checks: make sure that every edge terminating at the current vertex is
@@ -830,8 +871,10 @@ cout << "Hello\n\n";
 		for(const auto& e:v.left_edges)
 			assert(find_if(active_edges.begin(), active_edges.end(), [&](const ActiveEdge& a){return a.edge ==e;}) != active_edges.end());
 		
-
-
+		
+		//We're about to change 
+		//
+		//
 		//Now remove all left edges from active_edges
 		//
 		//Note that this is O(Num_of_active_edges). IF active_edges was a list
@@ -1024,11 +1067,11 @@ cout << "Hello\n\n";
 		cin.get();
 
 
-		for(auto c: crossings)
+		for(auto c: crs)
 		{
 			glBegin(GL_LINES);
 			glColor3f(1, 0, 1);
-			for(auto c:crossings)
+			for(auto c:crs)
 			{
 				glVertex(c.front_edge->vertex1->pixel);
 				glVertex(c.front_edge->vertex2->pixel);
