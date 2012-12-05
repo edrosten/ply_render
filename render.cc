@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <exception>
 #include <set>
+#include <fstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <iomanip>
@@ -149,7 +150,7 @@ struct Face;
 struct Edge
 {
 	Vertex *vertex1, *vertex2;
-	static_vector<Face*, 2> faces;
+	static_vector<Face*, 200> faces;
 
 	inline Edge(Vertex*v1, Vertex* v2);
 
@@ -229,6 +230,8 @@ struct Vertex
 	                           //The list of right edges needs to be sorted top to
 							   //bottom to minimize superfluous sorting at later points.
 							   //Top is smallest y
+
+	unordered_set<const Face*> faces;
 
 	void sort()
 	{
@@ -474,7 +477,7 @@ struct ActiveEdge
 	int occlusion_depth;
 	Vector<3> previous_3d;
 	Vector<2> previous_2d;
-	static_vector<Face*, 2> faces_above, faces_below;
+	static_vector<Face*, 200> faces_above, faces_below;
 	int index;
 };
 
@@ -484,8 +487,9 @@ struct Intersection
 	Vector<2> cam2d;
 	Vector<3> front_pos;
 	Vector<3> back_pos;
-	
+		
 	int front_edge, back_edge;
+	bool back_was_above;
 };
 void debug_draw_all(const Model& m, const Camera::Linear& cam, const SE3<>& E)
 {
@@ -566,7 +570,7 @@ vector<Vertex> get_sorted_list_of_camera_vertices_without_edges(const Camera::Li
 
 int main()
 {
-	Model m("cube.ply");
+	Model m("teapot2.ply");
 	ImageRef size(640, 480);
 
 
@@ -575,11 +579,11 @@ int main()
 	cam.get_parameters()[1] = 500;
 	cam.get_parameters().slice<2,2>() = vec(size)/2;
 
-	VideoDisplay d(size);
+	VideoDisplay d(size, 3);
 
 
 
-	SE3<> E = SE3<>::exp(makeVector(-.5,-.5,4,0,0,0));
+	SE3<> E = SE3<>::exp(makeVector(-.2,-.2,1,0,0,0));
 
 	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
 	cout << E << endl;
@@ -636,6 +640,10 @@ int main()
 
 				//Either way, associate the face with the edge
 				edge->second.faces.push_back(face);
+
+				//Also associate the face with the vertex.
+				v1->faces.insert(face);
+				v2->faces.insert(face);
 			}
 		}
 		
@@ -687,11 +695,12 @@ int main()
 	//Active adges will the list of edges intersecting with the current
 	//vertival sweep line.
 	vector<ActiveEdge> active_edges;
-	
+int III=0;	
 	for(const auto& v: vertices)
 	{
 
-cout << "Hello\n\n";
+cout << "------------------------------------------------------ Hello\n\n";
+cout << III << endl;
 
 		auto debug_order_at_v = [&](const ActiveEdge& e1, const ActiveEdge& e2)
 		{
@@ -799,6 +808,7 @@ cout << "Hello\n\n";
 						intersection.back_edge = e2.index;
 						intersection.front_pos = e1_pos;
 						intersection.back_pos = e2_pos;
+						intersection.back_was_above=false;
 					}
 					else
 					{
@@ -806,6 +816,7 @@ cout << "Hello\n\n";
 						intersection.back_edge = e1.index;
 						intersection.front_pos = e2_pos;
 						intersection.back_pos = e1_pos;
+						intersection.back_was_above=true;
 					}
 
 					crossings.push_back(intersection);
@@ -823,8 +834,8 @@ cout << "Hello\n\n";
 
 
 		//Now create an ActiveEdge lookup based on the indices.
-		vector<const ActiveEdge*> active_edge_lookup(active_edges.size());
-		for(const auto& a:active_edges)
+		vector<ActiveEdge*> active_edge_lookup(active_edges.size());
+		for(auto& a:active_edges)
 			active_edge_lookup[a.index] = &a;
 
 		//Sort the intersections left to right. Given there are up to n^2 intersections
@@ -854,15 +865,135 @@ for(const auto& c:crossings)
 	b0l0x b = {active_edge_lookup[c.front_edge]->edge, active_edge_lookup[c.back_edge]->edge, c.cam2d};
 	crs.push_back(b);
 }
+for(auto e:active_edges)
+{
+	glColor3f(1, 0, 1);
+	glVertex(e.edge->vertex1->pixel);
+	glVertex(e.edge->vertex2->pixel);
+}
+glEnd();
+glFlush();
+cout << "xxxxxxx\n";
+if(III==371)cin.get();
 
 		
 		//Now process the crossings
 		for(const auto& c: crossings)
 		{
-			//Obviously 
+			ActiveEdge& front = *active_edge_lookup[c.front_edge];
+			ActiveEdge& back  = *active_edge_lookup[c.back_edge];
+
+glClear(GL_COLOR_BUFFER_BIT);
+debug_draw_all(m, cam, E);
+glBegin(GL_LINES);
+glColor3f(1, 0, 0);
+glVertex(back.edge->vertex1->pixel);
+glVertex(back.edge->vertex2->pixel);
+glColor3f(0, 1, 0);
+for(auto f:back.occluding_faces)
+{
+	for(auto e:f->edges)
+	{
+		glVertex(e->vertex1->pixel);
+		glVertex(e->vertex2->pixel);
+	}
+}
+
+glColor3f(.5 , .5, 1);
+glVertex(front.edge->vertex1->pixel);
+glVertex(front.edge->vertex2->pixel);
+glEnd();
+glFlush();
+cout << "Green faces occlude the red edge\n";
+if(III==371)cin.get();
+
+glClear(GL_COLOR_BUFFER_BIT);
+debug_draw_all(m, cam, E);
+glBegin(GL_LINES);
+glColor3f(1, 0, 0);
+glVertex(back.edge->vertex1->pixel);
+glVertex(back.edge->vertex2->pixel);
+
+glColor3f(1, 1, 0);
+for(auto f:front.faces_above)
+{
+	for(auto e:f->edges)
+	{
+		glVertex(e->vertex1->pixel);
+		glVertex(e->vertex2->pixel);
+	}
+}
+
+glColor3f(0, 1, 1);
+for(auto f:front.faces_below)
+{
+	for(auto e:f->edges)
+	{
+		glVertex(e->vertex1->pixel);
+		glVertex(e->vertex2->pixel);
+	}
+}
+
+glEnd();
+glFlush();
+cout << "Yellow above, cyan below.\n";
+if(III==371)cin.get();
 
 
+			//If the previous occlusion depth was zero, emit an edge from the previous point
+			//to the current point. Note that this will generate a superfluous edge pair if
+			//the front edge has no faces!
+			if(back.occlusion_depth==0)
+			{
+				EdgeSegment e;
+				e.a3d = back.previous_3d;
+				e.a2d = back.previous_2d;
 
+				e.b3d = c.back_pos;
+				e.b2d = c.cam2d;
+				
+				output.push_back(e);
+			}
+			
+
+			//If the back edge was above the front edge originally, then
+			//all the faces connected above the front edge should be currently
+			//occluding. 
+			for(auto f: front.faces_above)
+				if(c.back_was_above)
+				{
+					assert(back.occluding_faces.count(f) != 0);
+					back.occluding_faces.erase(f);
+
+					back.occlusion_depth--;
+				}
+				else
+				{
+					assert(back.occluding_faces.count(f) == 0);
+					back.occluding_faces.insert(f);
+
+					back.occlusion_depth++;
+				}
+
+			for(auto f: front.faces_below)
+				if(c.back_was_above)
+				{
+					assert(back.occluding_faces.count(f) == 0);
+					back.occluding_faces.insert(f);
+
+					back.occlusion_depth++;
+				}
+				else
+				{
+					assert(back.occluding_faces.count(f) != 0);
+					
+					back.occluding_faces.erase(f);
+					back.occlusion_depth--;
+				}
+
+			//Record the previous vertex posision.
+			back.previous_2d = c.cam2d;
+			back.previous_3d = c.back_pos;
 		}
 
 
@@ -871,10 +1002,12 @@ for(const auto& c:crossings)
 		for(const auto& e:v.left_edges)
 			assert(find_if(active_edges.begin(), active_edges.end(), [&](const ActiveEdge& a){return a.edge ==e;}) != active_edges.end());
 		
-		
-		//We're about to change 
-		//
-		//
+
+		//Note that not all incoming edges will have the same occlusion depth
+		//some of them may be occluded by faces belonging to the vertex.
+
+
+
 		//Now remove all left edges from active_edges
 		//
 		//Note that this is O(Num_of_active_edges). IF active_edges was a list
@@ -886,14 +1019,34 @@ for(const auto& c:crossings)
 		//anyway, so we could never reduce the order of this section. Since using a list
 		//would worsen the constant greatly, using a list would almost certainly
 		//worsen the overall speed.
-		active_edges.erase(
-			remove_if(active_edges.begin(), active_edges.end(), 
-				[&](const ActiveEdge& e)
-				{
-					return e.edge->vertex2 == &v;
-				}),
-			active_edges.end());
-	
+		//
+		//Also 
+
+		auto edge_terminates_here = [&](const ActiveEdge& e)
+		{
+			return e.edge->vertex2 == &v;
+		};
+		
+		//First, emit any unoccluded edges terminating at this vertex.
+		//TODO: speed this up using lower_bound on height?
+		auto first_incoming_edge = find_if(active_edges.begin(), active_edges.end(), edge_terminates_here);
+
+		for(auto e = first_incoming_edge; e < active_edges.end(); e++)
+			if(edge_terminates_here(*e) && e->occlusion_depth==0)
+			{
+				EdgeSegment s;
+				s.a3d = e->previous_3d;
+				s.a2d = e->previous_2d;
+
+				s.b3d = v.cam3d;
+				s.b2d = v.cam2d;
+				
+				output.push_back(s);
+			}
+
+
+		active_edges.erase(remove_if(first_incoming_edge, active_edges.end(), edge_terminates_here), active_edges.end());
+
 		//Perform a vertical walk downwards along edges to see which faces come and go
 		//as the walk is performed, until we hit the current vertex.
 		//
@@ -925,9 +1078,14 @@ for(const auto& c:crossings)
 		//
 		//This is because faces associated with the vertex cannot occlude the
 		//vertex.
+		//
+		//However, keep a list of these faces since we'll need them later to 
+		//determine the visibility of edges coming from this vertex.
+		unordered_set<const Face*> faces_at_vertex;
 		for(auto e:v.left_edges)
 			for(auto f:e->faces)
-				faces_active.erase(f);
+				if(faces_active.erase(f))
+					faces_at_vertex.insert(f);
 
 		//Now, we need to check the vertex against all remaining active planes to 
 		//see if it is occluded.
@@ -953,12 +1111,13 @@ for(const auto& c:crossings)
 		for(auto e:v.left_edges)
 			assert(find_if(active_edges.begin(), active_edges.end(), [&](const ActiveEdge& a){return a.edge ==  e;}) == active_edges.end());
 
-		for(auto e:active_edges)
-		{
-			glColor3f(1, 0, 1);
-			glVertex(e.edge->vertex1->pixel);
-			glVertex(e.edge->vertex2->pixel);
-		}
+glBegin(GL_LINES);
+for(auto e:active_edges)
+{
+	glColor3f(1, 0, 1);
+	glVertex(e.edge->vertex1->pixel);
+	glVertex(e.edge->vertex2->pixel);
+}
 
 		//Edges are sorted top to bottom by intersection with the 
 		//sweep line. Find the position to insert the new edges.
@@ -974,18 +1133,47 @@ for(const auto& c:crossings)
 					);
 
 
-		//Set up right edges before insreting them, into active_edges.
+		//Set up right edges before inserting them, into active_edges.
 		//Note that the complete occlusion depth is required, which cannot be 
 		//inferred purely from the occlusion depth of the vertex.
 		//
-		//Do a miniture vertical walk to find the occlusion depth of each edge
+		//Walk downwards through the right hand edges. Note that this in itself is not
+		//sufficient to determine where a face is on, because we cannot tell if we're
+		//starting inside a face or not. For example:
+		//               
+		//        Vertical line epsilon to the right of the vertex X
+		//               |                     |       
+		//           ____|__                   |      _,-/
+		//           \   | /                   |  _,-' ,/                                          .
+		//            \  |/                    ,-'   ,/                                            .
+		//       a     \ /                    X|   ,/                                                                          
+		//              X|                   / | ,/                                                       
+		//               |                  /  |/                                                         
+		//               |                 / ,/|                                                          
+		//                                /,/  |                                           
+		//                               //    |
+		//                               '
+		//  Note that considering only lines emanating from the right of X, we start inside
+		//  the face, so crossing the edge takes us to the outside. Therefore, we need a way
+		//  of knowing which faces we start inside. There are several options:
 		//
-		//During this waly, also figure whether faces connect above or below
-		//the edge. 
+		//  1. For triangular faces, we know that if the triangle has a left edge and a right 
+		//     edge AND the bisector at X points up, then we must start inside the triangle.
+		//     Doable, but yuck.
+		//
+		//  2. For general faces there is no way of telling from just the edges at X. Instead
+		//     count all crossings of the face edges with the vertical line.
+		//     
+		// We've already done this vertical walk above to see which faces are active at the 
+		// current vertex, and which belong to the current vertex.
+		//
+		// During this walk, also figure whether faces connect above or below
+		// the edge. 
+
+
+		//Find out which faces are (a) active and (b) belong to the current vertex.
 		vector<ActiveEdge> right;
-		unordered_set<const Face*> faces_at_vertex;
-
-
+		
 		for(const Edge* e:v.right_edges)
 		{
 			ActiveEdge a;
@@ -1057,14 +1245,14 @@ for(const auto& c:crossings)
 		int n = &v - &*vertices.begin();
 		if(n > 0)
 		{
-			glColor3f(.5, 0, 0);
+			glColor3f(.5, .5, .5);
 			glVertex2f(vertices[n-1].pixel[0], 0);
 			glVertex2f(vertices[n-1].pixel[0], 480);
 		}
 
 		glEnd();
 		glFlush();
-		cin.get();
+		if(III==371)cin.get();
 
 
 		for(auto c: crs)
@@ -1091,11 +1279,19 @@ for(const auto& c:crossings)
 
 			glEnd();
 			glFlush();
-			cin.get();
+			if(III==371)cin.get();
 
 		}
 		//cross(v.cam2d);
-
+		III++;
+	}
+	
+	ofstream fo("haxxxxx");
+	for(auto s:output)
+	{
+		fo << s.a2d << endl << s.b2d << endl << endl;
 	}
 
+	ofstream f("blurb.ply");
+	m.write_PLY(f);
 }
