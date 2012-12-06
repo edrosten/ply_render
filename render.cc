@@ -12,12 +12,15 @@
 	#define  NDEBUG
 #endif
 
+#define F(X)
+#define NOTF(X) X
 
 #include <cassert>
 
 #include "model_loader.h"
 #include <cvd/videodisplay.h>
 #include <cvd/gl_helpers.h>
+#include <cvd/timer.h>
 #include <cvd/camera.h>
 #include <cvd/vector_image_ref.h>
 #include <algorithm>
@@ -144,7 +147,7 @@ struct Face;
 struct Edge
 {
 	Vertex *vertex1, *vertex2;
-	static_vector<Face*, 200> faces;
+	static_vector<Face*, 2> faces;
 
 	inline Edge(Vertex*v1, Vertex* v2);
 
@@ -463,14 +466,16 @@ struct EdgeSegment
 	Vector<2> a2d, b2d;
 };
 
+
+
 struct ActiveEdge
 {
 	const Edge* edge;
-	unordered_set<const Face*> occluding_faces;
+	F(unordered_set<const Face*> occluding_faces;)
 	int occlusion_depth;
 	Vector<3> previous_3d;
 	Vector<2> previous_2d;
-	static_vector<Face*, 200> faces_above, faces_below;
+	static_vector<Face*, 2> faces_above, faces_below;
 	int index;
 };
 
@@ -525,10 +530,17 @@ vector<Vertex> get_sorted_list_of_camera_vertices_without_edges(const SE3<>& E, 
 	return vertices;
 }
 
+
 vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 {
 
+cvd_timer T;
+cvd_timer U;
+
+#define X(Y) cerr << Y << " = " << T.reset() * 1000 << " ms" << endl
+T.reset();
 	vector<Vertex> vertices = get_sorted_list_of_camera_vertices_without_edges(E, m.vertices);
+X("get_sorted_list_of_camera_vertices_without_edges");
 
 	//The vertices are now shuffled, so in order to refer to a particular vertex, 
 	//we need a mapping:
@@ -583,6 +595,7 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 		for(auto& e:s_edges)
 			edges.push_back(e.second);
 	}
+X("find_edges");
 
 	//Now go and propagate the edge information to the faces and vertices
 	for(auto& edge: edges)
@@ -596,13 +609,19 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 		edge.vertex2->left_edges.push_back(&edge);
 	}
 
+X("populate_faces");
+
 	//Now do the final sorting on the right hand edges of each vertex.
 	for(auto& v:vertices)
 		v.sort();
 
+X("sort_right_edges");
+
 	//Compute the face normals
 	for(auto& f:faces)
 		f.compute_normals(E);
+
+X("compute_normals");
 
 	//At this point we have a sorted list of vertices (left to right), 
 	//and faces, vertices and edges with all cross referencing
@@ -617,6 +636,24 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 	//Active adges will the list of edges intersecting with the current
 	//vertival sweep line.
 	vector<ActiveEdge> active_edges;
+
+
+double tind=0;
+double tbubble=0;
+double tlookup=0;
+double tsortcrossing=0;
+double tproccrossing=0;
+double toutputcrossing=0;
+double tremoveincoming=0;
+double teraseincoming=0;
+double tfacesactive=0;
+double tfacesatvertex=0;
+double tdepthtest=0;
+double tinsertpos=0;
+double tnewactiveedges=0;
+double tinsertactive=0;
+
+#define P(X) cerr << #X " = " << X *1000 << " ms " << endl;
 
 	for(const auto& v: vertices)
 	{
@@ -638,8 +675,11 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 		//moved during the sort. So, we need to refer to each by a unique
 		//identifier. So, give each one a unique integer and use this as
 		//the basis of a lookup later.
+T.reset();
 		for(unsigned int i=0; i < active_edges.size(); i++)
 			active_edges[i].index=i;
+tind += T.reset();
+
 
 		//Sort edges top to bottom according to the intersection with the sweep
 		//line using bubble sort since each exchange corresponds to a crossing.
@@ -726,6 +766,7 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 				break;
 			n = new_n;
 		}
+tbubble += T.reset();
 		assert(is_sorted(active_edges.begin(), active_edges.end(), debug_order_at_v));
 
 
@@ -733,6 +774,7 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 		vector<ActiveEdge*> active_edge_lookup(active_edges.size());
 		for(auto& a:active_edges)
 			active_edge_lookup[a.index] = &a;
+tlookup += T.reset();
 
 		//Sort the intersections left to right. Given there are up to n^2 intersections
 		//this is at worst (n log n)^2
@@ -748,6 +790,7 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 			{
 				return a.cam2d[0] < b.cam2d[0];
 			});
+tsortcrossing += T.reset();
 
 		//Now process the crossings
 		for(const auto& c: crossings)
@@ -781,28 +824,33 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 				if(c.back_was_above)
 				{
 					//assert(back.occluding_faces.count(f) != 0);
-					if(back.occluding_faces.erase(f))
+					F(if(back.occluding_faces.erase(f))
 						back.occlusion_depth--;
+					)
+
+					NOTF(back.occlusion_depth = max(0, back.occlusion_depth-1);)
 				}
 				else
 				{
-					assert(back.occluding_faces.count(f) == 0);
-					back.occluding_faces.insert(f);
+					F(assert(back.occluding_faces.count(f) == 0);)
+					F(back.occluding_faces.insert(f);)
 					back.occlusion_depth++;
 				}
 
 			for(auto f: front.faces_below)
 				if(c.back_was_above)
 				{
-					assert(back.occluding_faces.count(f) == 0);
-					back.occluding_faces.insert(f);
+					F(assert(back.occluding_faces.count(f) == 0);)
+					F(back.occluding_faces.insert(f);)
 					back.occlusion_depth++;
 				}
 				else
 				{
 					//assert(back.occluding_faces.count(f) != 0);
-					if(back.occluding_faces.erase(f))
-						back.occlusion_depth--;
+					F(if(back.occluding_faces.erase(f))
+						back.occlusion_depth--;)
+
+					NOTF(back.occlusion_depth = max(0, back.occlusion_depth-1);)
 				}
 
 			//Record the previous vertex posision.
@@ -810,6 +858,7 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 			back.previous_3d = c.back_pos;
 		}
 
+tproccrossing+=T.reset();
 
 		//Some sanity checks: make sure that every edge terminating at the current vertex is
 		//active.
@@ -858,9 +907,14 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 				
 				output.push_back(s);
 			}
+toutputcrossing += T.reset();
+		
+		auto erase_from = 	remove_if(first_incoming_edge, active_edges.end(), edge_terminates_here);
 
+tremoveincoming += T.reset();
+		active_edges.erase(erase_from , active_edges.end());
 
-		active_edges.erase(remove_if(first_incoming_edge, active_edges.end(), edge_terminates_here), active_edges.end());
+teraseincoming += T.reset();
 
 		//Perform a vertical walk downwards along edges to see which faces come and go
 		//as the walk is performed, until we hit the current vertex.
@@ -883,6 +937,8 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 			}
 		}
 
+tfacesactive+=T.reset();
+
 		//Since we're at a vertex, we may have previously added faces 
 		//associted with this vertex. If so, then there must be both a left
 		//and right edge associated with the face at this vertex.
@@ -901,6 +957,8 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 			for(auto f:e->faces)
 				if(faces_active.erase(f))
 					faces_at_vertex.insert(f);
+
+tfacesatvertex+=T.reset();
 
 		//Now, we need to check the vertex against all remaining active planes to 
 		//see if it is occluded.
@@ -927,7 +985,8 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 				occluders.insert(f);
 			}
 		}
-		
+	
+tdepthtest += T.reset();
 		//Some sanity checks: no left edges should remain active.
 		#ifdef DEBUG
 			for(auto e:v.left_edges)
@@ -946,7 +1005,7 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 									return y < e.edge->y_at_x_of(v);
 								}
 					);
-
+tinsertpos += T.reset();
 
 		//Set up right edges before inserting them, into active_edges.
 		//Note that the complete occlusion depth is required, which cannot be 
@@ -993,7 +1052,7 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 		{
 			ActiveEdge a;
 			a.edge = e;
-			a.occluding_faces = occluders;
+			F(a.occluding_faces = occluders;)
 			a.occlusion_depth = occlusion_depth;
 			a.previous_3d=v.cam3d;
 			a.previous_2d=v.cam2d;
@@ -1024,10 +1083,10 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 				if(f->plane_hides(e->vertex2->cam3d))
 				{
 					//The current active face really shouldn't be in the way already
-					assert(a.occluding_faces.count(f) == 0);
+					F(assert(a.occluding_faces.count(f) == 0);)
 
 					a.occlusion_depth++;
-					a.occluding_faces.insert(f);
+					F(a.occluding_faces.insert(f);)
 				}
 			}
 
@@ -1037,18 +1096,36 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 
 			right.push_back(a);
 		}
-		
-		active_edges.insert(here, right.begin(), right.end());
+tnewactiveedges+=T.reset();
 
+		active_edges.insert(here, right.begin(), right.end());
+tinsertactive+=T.reset();
 		assert(is_sorted(active_edges.begin(), active_edges.end(), debug_order_at_v));
 	}
+
+P(tind);
+P(tbubble);
+P(tlookup);
+P(tsortcrossing);
+P(tproccrossing);
+P(toutputcrossing);
+P(tremoveincoming);
+P(teraseincoming);
+P(tfacesactive);
+P(tfacesatvertex);
+P(tdepthtest);
+P(tinsertpos);
+P(tnewactiveedges);
+P(tinsertactive);
+
+P(U.reset());
 
 	return output;
 }
 
 int main()
 {
-	Model m("teapot.ply");
+	Model m("turbine2.ply");
 	ImageRef size(640, 480);
 
 	Camera::Linear cam;
