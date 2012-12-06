@@ -570,7 +570,7 @@ vector<Vertex> get_sorted_list_of_camera_vertices_without_edges(const Camera::Li
 
 int main()
 {
-	Model m("teapot2.ply");
+	Model m("turbine2.ply");
 	ImageRef size(640, 480);
 
 
@@ -579,11 +579,11 @@ int main()
 	cam.get_parameters()[1] = 500;
 	cam.get_parameters().slice<2,2>() = vec(size)/2;
 
-	VideoDisplay d(size, 3);
+	VideoDisplay d(size, 1);
 
 
 
-	SE3<> E = SE3<>::exp(makeVector(-.2,-.2,1,0,0,0));
+	SE3<> E = SE3<>::exp(makeVector(-.2,-.2,3,0,0,0));
 
 	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
 	cout << E << endl;
@@ -599,11 +599,9 @@ int main()
 	//The vertices are now shuffled, so in order to refer to a particular vertex, 
 	//we need a mapping:
 	vector<Vertex*> index_to_vertex(vertices.size());
+
 	for(auto& v:vertices)
-	{
 		index_to_vertex[v.index] = &v;
-		cout << setprecision(15) << v.cam2d[0] << endl;
-	}
 
 	
 	vector<Edge> edges;
@@ -672,16 +670,6 @@ int main()
 	for(auto& f:faces)
 		f.compute_normals(E);
 
-	auto cross=[](const Vector<2>& v)
-	{
-		glColor3f(1,0,0);
-		int size=3;
-		glVertex(v+makeVector( size, 0));
-		glVertex(v+makeVector(-size, 0));
-		glVertex(v+makeVector(0,  size));
-		glVertex(v+makeVector(0, -size));
-	};
-
 	//At this point we have a sorted list of vertices (left to right), 
 	//and faces, vertices and edges with all cross referencing
 	//information.
@@ -695,12 +683,9 @@ int main()
 	//Active adges will the list of edges intersecting with the current
 	//vertival sweep line.
 	vector<ActiveEdge> active_edges;
-int III=0;	
+
 	for(const auto& v: vertices)
 	{
-
-cout << "------------------------------------------------------ Hello\n\n";
-cout << III << endl;
 
 		auto debug_order_at_v = [&](const ActiveEdge& e1, const ActiveEdge& e2)
 		{
@@ -709,31 +694,6 @@ cout << III << endl;
 
 		//Horizontal position of the sweep line
 		//double x = v.cam2d[0];
-
-		glClear(GL_COLOR_BUFFER_BIT);
-		debug_draw_all(m, cam, E);
-		glBegin(GL_LINES);
-
-		glColor3f(.5, 0, 0);
-		glVertex2f(v.pixel[0], 0);
-		glVertex2f(v.pixel[0], 480);
-
-		for(auto e:v.left_edges)
-		{
-			glColor3f(1, 1, 0);
-			glVertex(e->vertex1->pixel);
-			glColor3f(0, 1, 0);
-			glVertex(e->vertex2->pixel);
-		}
-
-		for(auto e:v.right_edges)
-		{
-			glColor3f(0, 1, 0);
-			glVertex(e->vertex1->pixel);
-			glColor3f(0, 1, 1);
-			glVertex(e->vertex2->pixel);
-		}
-
 
 		//Find the crossings by re-sorting.
 		//
@@ -853,92 +813,11 @@ cout << III << endl;
 				return a.cam2d[0] < b.cam2d[0];
 			});
 
-
-struct b0l0x
-{
-	const Edge* front_edge, *back_edge;
-	Vector<2> cam2d;
-};
-vector<b0l0x> crs;
-for(const auto& c:crossings)
-{
-	b0l0x b = {active_edge_lookup[c.front_edge]->edge, active_edge_lookup[c.back_edge]->edge, c.cam2d};
-	crs.push_back(b);
-}
-for(auto e:active_edges)
-{
-	glColor3f(1, 0, 1);
-	glVertex(e.edge->vertex1->pixel);
-	glVertex(e.edge->vertex2->pixel);
-}
-glEnd();
-glFlush();
-cout << "xxxxxxx\n";
-if(III==371)cin.get();
-
-		
 		//Now process the crossings
 		for(const auto& c: crossings)
 		{
 			ActiveEdge& front = *active_edge_lookup[c.front_edge];
 			ActiveEdge& back  = *active_edge_lookup[c.back_edge];
-
-glClear(GL_COLOR_BUFFER_BIT);
-debug_draw_all(m, cam, E);
-glBegin(GL_LINES);
-glColor3f(1, 0, 0);
-glVertex(back.edge->vertex1->pixel);
-glVertex(back.edge->vertex2->pixel);
-glColor3f(0, 1, 0);
-for(auto f:back.occluding_faces)
-{
-	for(auto e:f->edges)
-	{
-		glVertex(e->vertex1->pixel);
-		glVertex(e->vertex2->pixel);
-	}
-}
-
-glColor3f(.5 , .5, 1);
-glVertex(front.edge->vertex1->pixel);
-glVertex(front.edge->vertex2->pixel);
-glEnd();
-glFlush();
-cout << "Green faces occlude the red edge\n";
-if(III==371)cin.get();
-
-glClear(GL_COLOR_BUFFER_BIT);
-debug_draw_all(m, cam, E);
-glBegin(GL_LINES);
-glColor3f(1, 0, 0);
-glVertex(back.edge->vertex1->pixel);
-glVertex(back.edge->vertex2->pixel);
-
-glColor3f(1, 1, 0);
-for(auto f:front.faces_above)
-{
-	for(auto e:f->edges)
-	{
-		glVertex(e->vertex1->pixel);
-		glVertex(e->vertex2->pixel);
-	}
-}
-
-glColor3f(0, 1, 1);
-for(auto f:front.faces_below)
-{
-	for(auto e:f->edges)
-	{
-		glVertex(e->vertex1->pixel);
-		glVertex(e->vertex2->pixel);
-	}
-}
-
-glEnd();
-glFlush();
-cout << "Yellow above, cyan below.\n";
-if(III==371)cin.get();
-
 
 			//If the previous occlusion depth was zero, emit an edge from the previous point
 			//to the current point. Note that this will generate a superfluous edge pair if
@@ -959,19 +838,20 @@ if(III==371)cin.get();
 			//If the back edge was above the front edge originally, then
 			//all the faces connected above the front edge should be currently
 			//occluding. 
+			//
+			//The assertions hold only if there are no self-intersecting faces.
+			//Therefore for safety, leave them out.
 			for(auto f: front.faces_above)
 				if(c.back_was_above)
 				{
-					assert(back.occluding_faces.count(f) != 0);
-					back.occluding_faces.erase(f);
-
-					back.occlusion_depth--;
+					//assert(back.occluding_faces.count(f) != 0);
+					if(back.occluding_faces.erase(f))
+						back.occlusion_depth--;
 				}
 				else
 				{
 					assert(back.occluding_faces.count(f) == 0);
 					back.occluding_faces.insert(f);
-
 					back.occlusion_depth++;
 				}
 
@@ -980,15 +860,13 @@ if(III==371)cin.get();
 				{
 					assert(back.occluding_faces.count(f) == 0);
 					back.occluding_faces.insert(f);
-
 					back.occlusion_depth++;
 				}
 				else
 				{
-					assert(back.occluding_faces.count(f) != 0);
-					
-					back.occluding_faces.erase(f);
-					back.occlusion_depth--;
+					//assert(back.occluding_faces.count(f) != 0);
+					if(back.occluding_faces.erase(f))
+						back.occlusion_depth--;
 				}
 
 			//Record the previous vertex posision.
@@ -1005,7 +883,6 @@ if(III==371)cin.get();
 
 		//Note that not all incoming edges will have the same occlusion depth
 		//some of them may be occluded by faces belonging to the vertex.
-
 
 
 		//Now remove all left edges from active_edges
@@ -1089,8 +966,11 @@ if(III==371)cin.get();
 
 		//Now, we need to check the vertex against all remaining active planes to 
 		//see if it is occluded.
-
-
+		//
+		//In principle, we could propagate occlusion information from all incoming
+		//edges to the current vertex. If, however there are intersecting faces
+		//then that can lead to cascading errors. A fresh computation here will
+		//stop the cascade, so only minor rendering errors will result.
 		int occlusion_depth=0;
 		unordered_set<const Face*> occluders;
 		for(auto f: faces_active)
@@ -1110,14 +990,6 @@ if(III==371)cin.get();
 		//Some sanity checks: no left edges should remain active.
 		for(auto e:v.left_edges)
 			assert(find_if(active_edges.begin(), active_edges.end(), [&](const ActiveEdge& a){return a.edge ==  e;}) == active_edges.end());
-
-glBegin(GL_LINES);
-for(auto e:active_edges)
-{
-	glColor3f(1, 0, 1);
-	glVertex(e.edge->vertex1->pixel);
-	glVertex(e.edge->vertex2->pixel);
-}
 
 		//Edges are sorted top to bottom by intersection with the 
 		//sweep line. Find the position to insert the new edges.
@@ -1226,64 +1098,6 @@ for(auto e:active_edges)
 		active_edges.insert(here, right.begin(), right.end());
 
 		assert(is_sorted(active_edges.begin(), active_edges.end(), debug_order_at_v));
-		
-		
-
-
-
-
-
-
-
-
-
-
-
-
-		glBegin(GL_LINES);
-		//Lolhack;
-		int n = &v - &*vertices.begin();
-		if(n > 0)
-		{
-			glColor3f(.5, .5, .5);
-			glVertex2f(vertices[n-1].pixel[0], 0);
-			glVertex2f(vertices[n-1].pixel[0], 480);
-		}
-
-		glEnd();
-		glFlush();
-		if(III==371)cin.get();
-
-
-		for(auto c: crs)
-		{
-			glBegin(GL_LINES);
-			glColor3f(1, 0, 1);
-			for(auto c:crs)
-			{
-				glVertex(c.front_edge->vertex1->pixel);
-				glVertex(c.front_edge->vertex2->pixel);
-				glVertex(c.back_edge->vertex1->pixel);
-				glVertex(c.back_edge->vertex2->pixel);
-			}
-
-			glColor3f(1, 1, 1);
-			glVertex(c.front_edge->vertex1->pixel);
-			glVertex(c.front_edge->vertex2->pixel);
-			glColor3f(.5, .5, .5);
-			glVertex(c.back_edge->vertex1->pixel);
-			glVertex(c.back_edge->vertex2->pixel);
-			
-
-			cross(cam.project(c.cam2d));
-
-			glEnd();
-			glFlush();
-			if(III==371)cin.get();
-
-		}
-		//cross(v.cam2d);
-		III++;
 	}
 	
 	ofstream fo("haxxxxx");
