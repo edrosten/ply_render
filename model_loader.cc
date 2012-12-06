@@ -257,7 +257,7 @@ void Model::write_PLY_with_vertex_colors(ostream& o, const vector<array<int,3>>&
 	for(const auto& e: edges)
 		o << print << 3 << e[0] << e[1] << e[2];
 }
-void Model::write_PLY(ostream& o)
+void Model::write_PLY(ostream& o) const
 {
 	o <<
 		"ply" << endl << 

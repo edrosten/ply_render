@@ -76,8 +76,8 @@ class Model
 		return edges[i][2];
 	}
 
-	void write_STL(std::ostream& o, const std::string& name);
-	void write_PLY(std::ostream& o);
+	void write_STL(std::ostream& o, const std::string& name) ;
+	void write_PLY(std::ostream& o) const;
 	void write_PLY_with_vertex_colors(std::ostream& o, const std::vector<std::array<int, 3>>& col);
 
 };

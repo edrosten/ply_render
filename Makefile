@@ -1,7 +1,7 @@
 CXX=g++-4.7 -std=c++0x -I rply-1.1.1
 CC=gcc
 
-debug=1
+debug=0
 
 ifeq ($(debug),0)
 CXXFLAGS=-Wall -Wextra -O3 -g -ggdb -std=c++0x -DTOON_NDEBUG -DNDEBUG

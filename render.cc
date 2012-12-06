@@ -1,4 +1,5 @@
-#define DEBUG
+//#define DEBUG
+//#undef DEBUG
 
 #ifdef DEBUG
 	#ifndef TOON_CHECK_BOUNDS
@@ -7,7 +8,12 @@
 	#ifndef TOON_INITIALIZE_NAN
 		#define TOON_INITIALIZE_NAN
 	#endif
+#else
+	#define  NDEBUG
 #endif
+
+
+#include <cassert>
 
 #include "model_loader.h"
 #include <cvd/videodisplay.h>
@@ -29,32 +35,22 @@ using namespace std;
 using namespace tag;
 using namespace TooN;
 
+#ifdef DEBUG
+	template<class C> void unset(C& c)
+	{
+		c=C();
+	}
+	template<class C*> void unset(C& c)
+	{
+		c = reinterpret_cast<C>(0xbadc0ffee0ddf00d);
+	}
 
-vector<pair<int, Vector<2>>> proj(const vector<Vector<3>>& vertices, const SE3<>& E)
-{
-	vector<pair<int,Vector<2>>> ret;
-	int i=0;
-	for(auto& v:vertices)
-		ret.push_back(make_pair(i++, project(E*v)));
-
-	return ret;
-}
-
-template<class C> void unset(C& c)
-{
-	c=C();
-}
-template<class C*> void unset(C& c)
-{
-	c = reinterpret_cast<C>(0xbadc0ffee0ddf00d);
-}
-
-template<int I> void unset(Vector<I>& v)
-{
-	for(int i=0; i < I; i++)
-		v[i] = -1.005360053e99;
-}
-
+	template<int I> void unset(Vector<I>& v)
+	{
+		for(int i=0; i < I; i++)
+			v[i] = -1.005360053e99;
+	}
+#endif
 
 
 
@@ -78,8 +74,6 @@ template<class C, size_t Size> class Array: private array<C, Size>
 			assert(i < Size);
 			return array<C, Size>::operator[](i);
 		}	
-
-
 };
 
 #else
@@ -220,7 +214,6 @@ struct Vertex
 	Vector<3> world;
 	Vector<3> cam3d; //3d vertex position in camera coordinates
 	Vector<2> cam2d; //2d veretx position in ideal camera coordinates
-	Vector<2> pixel; //projected image coordinates
 	int index; //Which vertex is this?
 
 	vector<Edge*> left_edges; //List of edges to the left of the current point
@@ -334,7 +327,7 @@ struct Face
 		// (Ex).(Tp) = 0
 		// (xE)^t (Tp) = 0
 		// T = inv(E^t)
-		cam_plane = plane * E.inverse();
+		cam_plane = plane * E.inverse(); 
 	}
 
 	double depth(const Vector<2>& cam2d) const
@@ -491,44 +484,9 @@ struct Intersection
 	int front_edge, back_edge;
 	bool back_was_above;
 };
-void debug_draw_all(const Model& m, const Camera::Linear& cam, const SE3<>& E)
-{
-	double minz=1e99, maxz=-1e99;
-
-	for(auto v:m.vertices)
-	{
-		double z = (E*v)[2];
-		minz = min(minz, z);
-		maxz = max(maxz, z);
-	}
 
 
-	auto vert = [&](const Vector<3>& x){
-		glColor3f(0, 0, (1-(x[2]-minz)/(maxz-minz))*0.6 + 0.1);
-		glVertex(cam.project(project(x)));
-	};
-
-	glBegin(GL_LINES);
-	for(size_t i=0; i < m.get_edges().size(); i++)
-	{
-		Vector<3> EA = E*m.A_pos(i);
-		Vector<3> EU = E*m.U_pos(i);
-		Vector<3> EV = E*m.V_pos(i);
-		
-		vert(EA);
-		vert(EU);
-
-		vert(EA);
-		vert(EV);
-
-		vert(EU);
-		vert(EV);
-	}
-	glEnd();
-}
-
-
-vector<Vertex> get_sorted_list_of_camera_vertices_without_edges(const Camera::Linear& cam, const SE3<>& E, const vector<Vector<3>>& model_vertices)
+vector<Vertex> get_sorted_list_of_camera_vertices_without_edges(const SE3<>& E, const vector<Vector<3>>& model_vertices)
 {
 	const double x_delta=1e-6;
 
@@ -541,7 +499,6 @@ vector<Vertex> get_sorted_list_of_camera_vertices_without_edges(const Camera::Li
 		vertices[i].world = model_vertices[i];
 		vertices[i].cam3d = E*model_vertices[i];
 		vertices[i].cam2d = project(vertices[i].cam3d);
-		vertices[i].pixel = cam.project(vertices[i].cam2d);
 		vertices[i].index = i;
 	}
 	
@@ -568,33 +525,10 @@ vector<Vertex> get_sorted_list_of_camera_vertices_without_edges(const Camera::Li
 	return vertices;
 }
 
-int main()
+vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 {
-	Model m("turbine2.ply");
-	ImageRef size(640, 480);
 
-
-	Camera::Linear cam;
-	cam.get_parameters()[0] = 500;
-	cam.get_parameters()[1] = 500;
-	cam.get_parameters().slice<2,2>() = vec(size)/2;
-
-	VideoDisplay d(size, 1);
-
-
-
-	SE3<> E = SE3<>::exp(makeVector(-.2,-.2,3,0,0,0));
-
-	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
-	cout << E << endl;
-	
-	glClear(GL_COLOR_BUFFER_BIT);
-	debug_draw_all(m, cam, E);
-	glFlush();
-	cin.get();
-	
-	
-	vector<Vertex> vertices = get_sorted_list_of_camera_vertices_without_edges(cam, E, m.vertices);
+	vector<Vertex> vertices = get_sorted_list_of_camera_vertices_without_edges(E, m.vertices);
 
 	//The vertices are now shuffled, so in order to refer to a particular vertex, 
 	//we need a mapping:
@@ -687,10 +621,12 @@ int main()
 	for(const auto& v: vertices)
 	{
 
-		auto debug_order_at_v = [&](const ActiveEdge& e1, const ActiveEdge& e2)
-		{
-			return e1.edge->y_at_x_of_unchecked(v) < e2.edge->y_at_x_of_unchecked(v);
-		};
+		#ifdef DEBUG
+			auto debug_order_at_v = [&](const ActiveEdge& e1, const ActiveEdge& e2)
+			{
+				return e1.edge->y_at_x_of_unchecked(v) < e2.edge->y_at_x_of_unchecked(v);
+			};
+		#endif
 
 		//Horizontal position of the sweep line
 		//double x = v.cam2d[0];
@@ -877,8 +813,10 @@ int main()
 
 		//Some sanity checks: make sure that every edge terminating at the current vertex is
 		//active.
-		for(const auto& e:v.left_edges)
-			assert(find_if(active_edges.begin(), active_edges.end(), [&](const ActiveEdge& a){return a.edge ==e;}) != active_edges.end());
+		#ifdef DEBUG
+			for(const auto& e:v.left_edges)
+				assert(find_if(active_edges.begin(), active_edges.end(), [&](const ActiveEdge& a){return a.edge ==e;}) != active_edges.end());
+		#endif
 		
 
 		//Note that not all incoming edges will have the same occlusion depth
@@ -975,8 +913,11 @@ int main()
 		unordered_set<const Face*> occluders;
 		for(auto f: faces_active)
 		{
-			for(const auto& fv:f->vertices)
-				assert(fv != &v);
+			
+			#ifdef DEBUG
+				for(const auto& fv:f->vertices)
+					assert(fv != &v);
+			#endif
 			
 			double depth = f->depth(v.cam2d);
 
@@ -988,8 +929,10 @@ int main()
 		}
 		
 		//Some sanity checks: no left edges should remain active.
-		for(auto e:v.left_edges)
-			assert(find_if(active_edges.begin(), active_edges.end(), [&](const ActiveEdge& a){return a.edge ==  e;}) == active_edges.end());
+		#ifdef DEBUG
+			for(auto e:v.left_edges)
+				assert(find_if(active_edges.begin(), active_edges.end(), [&](const ActiveEdge& a){return a.edge ==  e;}) == active_edges.end());
+		#endif
 
 		//Edges are sorted top to bottom by intersection with the 
 		//sweep line. Find the position to insert the new edges.
@@ -1099,13 +1042,29 @@ int main()
 
 		assert(is_sorted(active_edges.begin(), active_edges.end(), debug_order_at_v));
 	}
-	
-	ofstream fo("haxxxxx");
-	for(auto s:output)
-	{
-		fo << s.a2d << endl << s.b2d << endl << endl;
-	}
 
-	ofstream f("blurb.ply");
-	m.write_PLY(f);
+	return output;
 }
+
+int main()
+{
+	Model m("teapot.ply");
+	ImageRef size(640, 480);
+
+	Camera::Linear cam;
+	cam.get_parameters()[0] = 500;
+	cam.get_parameters()[1] = 500;
+	cam.get_parameters().slice<2,2>() = vec(size)/2;
+
+
+	SE3<> E = SE3<>::exp(makeVector(-.2,-.2,3,0,0,0));
+	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
+	
+	vector<EdgeSegment> a = render(E, m);
+
+	for(auto e:a)
+	{
+		cout << cam.project(e.a2d) << endl << cam.project(e.b2d) << endl << endl;
+	}
+}
+
