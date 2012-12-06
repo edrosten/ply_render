@@ -654,6 +654,8 @@ double tnewactiveedges=0;
 double tinsertactive=0;
 
 #define P(X) cerr << #X " = " << X *1000 << " ms " << endl;
+	
+	unordered_set<const Face*> faces_active;
 
 	for(const auto& v: vertices)
 	{
@@ -922,7 +924,8 @@ teraseincoming += T.reset();
 		//Possible TODO: one could perform a walk upwards or downwards, depending on
 		//how close to the top or bottom the current vertex is, for a factor of 2 saving.
 		double vertex_y = v.cam2d[1];
-		unordered_set<const Face*> faces_active;
+
+		faces_active.clear();
 		for(const auto& e:active_edges)
 		{
 			if(e.edge->y_at_x_of(v) > vertex_y)
