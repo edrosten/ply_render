@@ -671,6 +671,7 @@ struct ActiveEdge
 	Vector<2> previous_2d;
 	static_vector<Face*, 2> faces_above, faces_below;
 	int index;
+	double y;
 };
 
 
@@ -874,10 +875,25 @@ double tinsertactive=0;
 		//the basis of a lookup later.
 T.reset();
 		for(unsigned int i=0; i < active_edges.size(); i++)
+		{
 			active_edges[i].index=i;
+			active_edges[i].y = active_edges[i].edge->y_at_x_of(v);
+		}
 tind += T.reset();
-
-
+		
+/*
+		struct Index
+		{	
+			double y;
+			int index;
+		}
+		vector<Index> indices(active_edges.size());
+		for(unsigned int i=0; i < active_edges.size(); i++)
+		{
+			indices[i].index=i;
+			indices[i].y = active_edges[i].y_at_x_of(v);
+		}
+*/
 		//Sort edges top to bottom according to the intersection with the sweep
 		//line using bubble sort since each exchange corresponds to a crossing.
 		//Thanks, Tom!!!
@@ -889,7 +905,7 @@ tind += T.reset();
 			
 			for(int i=1; i < n; i++)
 			{
-				if(active_edges[i-1].edge->y_at_x_of(v) > active_edges[i].edge->y_at_x_of(v))
+				if(active_edges[i-1].y > active_edges[i].y)
 				{
 					swap(active_edges[i-1], active_edges[i]);
 
