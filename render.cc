@@ -343,10 +343,20 @@ struct Edge
 	Vertex *vertex1, *vertex2;
 	static_vector<Face*, 2> faces;
 
+	//This is dynamic information which is in use
+	//only when the edge is active. It ought to belong to
+	//active edge, but that bloats the ActiveEdge structure.
+	//
+	//Since ActiveEdge is hammered and has many
+	//deletes and inserts, minimizing its size improves the speed
+	//by a factor of 1.3.
+	//
+	//Sad that the cleaner design is slower, but oh well.
 	int occlusion_depth;
 	Vector<3> previous_3d;
 	Vector<2> previous_2d;
 	static_vector<Face*, 2> faces_above, faces_below;
+	F(unordered_set<const Face*> occluding_faces;)
 
 	inline Edge(Vertex*v1, Vertex* v2);
 
@@ -670,8 +680,6 @@ struct EdgeSegment
 struct ActiveEdge
 {
 	Edge* edge;
-	F(unordered_set<const Face*> occluding_faces;)
-	int index;
 	double y;
 };
 
@@ -854,6 +862,8 @@ double tinsertactive=0;
 	//unordered_set<const Face*> faces_active;
 	FaceSet<Face> faces_active(faces);
 
+	vector<int> index;
+
 	for(const auto& v: vertices)
 	{
 
@@ -875,9 +885,10 @@ double tinsertactive=0;
 		//identifier. So, give each one a unique integer and use this as
 		//the basis of a lookup later.
 T.reset();
+		index.resize(active_edges.size());
 		for(unsigned int i=0; i < active_edges.size(); i++)
 		{
-			active_edges[i].index=i;
+			index[i]=i;
 			active_edges[i].y = active_edges[i].edge->y_at_x_of(v);
 		}
 tind += T.reset();
@@ -897,6 +908,7 @@ tind += T.reset();
 				if(active_edges[i-1].y > active_edges[i].y)
 				{
 					swap(active_edges[i-1], active_edges[i]);
+					swap(index[i-1], index[i]);
 
 					const ActiveEdge& e1 = active_edges[i];
 					const ActiveEdge& e2 = active_edges[i-1];
@@ -942,16 +954,16 @@ tind += T.reset();
 
 					if(e1_pos[2] < e2_pos[2])
 					{
-						intersection.front_edge = e1.index;
-						intersection.back_edge = e2.index;
+						intersection.front_edge = index[i];
+						intersection.back_edge = index[i-1];
 						intersection.front_pos = e1_pos;
 						intersection.back_pos = e2_pos;
 						intersection.back_was_above=false;
 					}
 					else
 					{
-						intersection.front_edge = e2.index;
-						intersection.back_edge = e1.index;
+						intersection.front_edge = index[i-1];
+						intersection.back_edge = index[i];
 						intersection.front_pos = e2_pos;
 						intersection.back_pos = e1_pos;
 						intersection.back_was_above=true;
@@ -974,8 +986,8 @@ tbubble += T.reset();
 
 		//Now create an ActiveEdge lookup based on the indices.
 		vector<ActiveEdge*> active_edge_lookup(active_edges.size());
-		for(auto& a:active_edges)
-			active_edge_lookup[a.index] = &a;
+		for(size_t i=0; i < active_edges.size(); i++)
+			active_edge_lookup[index[i]] = &active_edges[i];
 tlookup += T.reset();
 
 		//Sort the intersections left to right. Given there are up to n^2 intersections
