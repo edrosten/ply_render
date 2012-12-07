@@ -72,85 +72,37 @@ class FaceSet
 
 		struct Block
 		{
-			static const int ChunkBits = 64;
-			static const int N=4;
-			static const int Bits = N * ChunkBits;
-			uint64_t data[N];
-
-			bool lazy_clear;
-			int num_empty_chunx;
+			static const int Bits = 64;
+			uint64_t data;
 
 			void do_clear()
 			{
-				for(int i=0; i < N; i++)
-					data[i] = 0;
-
-				lazy_clear=false;
-				num_empty_chunx=N;
+				data = 0;
 			}
 
 			bool is_empty() const
 			{
-				return (lazy_clear || num_empty_chunx == N);
+				return !data;
 			}
 			
 			bool get(int bit)const
 			{
-				int chunk = bit/ChunkBits;
-				uint64_t mask = uint64_t(1) << (bit%ChunkBits);
-				return data[chunk] & mask;
+				uint64_t mask = uint64_t(1) << bit;
+				return data & mask;
 			}
 
 			void flip(int bit)
 			{
-				int chunk = bit/ChunkBits;
-				uint64_t mask = uint64_t(1) << (bit%ChunkBits);
-
-				if(lazy_clear)
-				{
-					do_clear();
-					data[chunk] = mask;
-					num_empty_chunx--;
-				}
-				else
-				{
-					if(data[chunk] == 0)
-					{
-						data[chunk]=mask;
-						num_empty_chunx--;
-					}
-					else if(data[chunk] == mask)
-					{
-						data[chunk]=0;
-						num_empty_chunx++;
-					}
-					else
-						data[chunk]^= mask;
-				}
+				uint64_t mask = uint64_t(1) << (bit);
+				data^=mask;
 			}
 
 			bool erase(int bit)
 			{
-				int chunk = bit/ChunkBits;
-				uint64_t mask = uint64_t(1) << (bit%ChunkBits);
-
-				if(lazy_clear)
-					return false;
-				else
-				{
-					if((data[chunk] & mask) == 0)
-						return false;
-					else
-					{
-						data[chunk]^= mask;
-						
-						if(data[chunk] == 0)
-							num_empty_chunx++;
-					
-						return true;
-					}
-				}
-
+				uint64_t mask = uint64_t(1) << bit;
+				bool n = data & mask;
+				data &= ~mask;
+				return n;
 			}
 
 		};
@@ -268,7 +220,7 @@ class FaceSet
 		void clear()
 		{
 			for(auto& b:blocks)
-				b.lazy_clear=true;
+				b.do_clear();
 		}
 		
 		void flip(const C* c)
