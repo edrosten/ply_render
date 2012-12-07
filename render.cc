@@ -72,8 +72,9 @@ class FaceSet
 
 		struct Block
 		{
+			typedef uint64_t type;
 			static const int Bits = 64;
-			uint64_t data;
+			type data;
 
 			void do_clear()
 			{
@@ -87,19 +88,19 @@ class FaceSet
 			
 			bool get(int bit)const
 			{
-				uint64_t mask = uint64_t(1) << bit;
+				type mask = type(1) << bit;
 				return data & mask;
 			}
 
 			void flip(int bit)
 			{
-				uint64_t mask = uint64_t(1) << (bit);
+				type mask = type(1) << (bit);
 				data^=mask;
 			}
 
 			bool erase(int bit)
 			{
-				uint64_t mask = uint64_t(1) << bit;
+				type mask = type(1) << bit;
 				bool n = data & mask;
 				data &= ~mask;
 				return n;
