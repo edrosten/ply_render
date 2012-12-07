@@ -1,4 +1,4 @@
-//#define DEBUG
+#define DEBUG
 //#undef DEBUG
 
 #ifdef DEBUG
@@ -55,7 +55,248 @@ using namespace TooN;
 	}
 #endif
 
+// The following class behaves identically to a set<Face*>, with the 
+// constraint that all the Face*'s have to be drawn from the same
+// std::vector.
+//
+// In comparison to using unordered_set and set, it's about 6 and 8 times
+// faster in the benchmarks, respectively. Without the speedup, the set
+// access was dominating the rendering time.
+//
+// So it's very much not premature optimization :)
+//
+template<class C>
+class FaceSet
+{
+	private:
 
+		struct Block
+		{
+			static const int ChunkBits = 64;
+			static const int N=4;
+			static const int Bits = N * ChunkBits;
+			uint64_t data[N];
+
+			bool lazy_clear;
+			int num_empty_chunx;
+
+			void do_clear()
+			{
+				for(int i=0; i < N; i++)
+					data[i] = 0;
+
+				lazy_clear=false;
+				num_empty_chunx=N;
+			}
+
+			bool is_empty() const
+			{
+				return (lazy_clear || num_empty_chunx == N);
+			}
+			
+			bool get(int bit)const
+			{
+				int chunk = bit/ChunkBits;
+				uint64_t mask = uint64_t(1) << (bit%ChunkBits);
+				return data[chunk] & mask;
+			}
+
+			void flip(int bit)
+			{
+				int chunk = bit/ChunkBits;
+				uint64_t mask = uint64_t(1) << (bit%ChunkBits);
+
+				if(lazy_clear)
+				{
+					do_clear();
+					data[chunk] = mask;
+					num_empty_chunx--;
+				}
+				else
+				{
+					if(data[chunk] == 0)
+					{
+						data[chunk]=mask;
+						num_empty_chunx--;
+					}
+					else if(data[chunk] == mask)
+					{
+						data[chunk]=0;
+						num_empty_chunx++;
+					}
+					else
+						data[chunk]^= mask;
+				}
+			}
+
+			bool erase(int bit)
+			{
+				int chunk = bit/ChunkBits;
+				uint64_t mask = uint64_t(1) << (bit%ChunkBits);
+
+				if(lazy_clear)
+					return false;
+				else
+				{
+					if((data[chunk] & mask) == 0)
+						return false;
+					else
+					{
+						data[chunk]^= mask;
+						
+						if(data[chunk] == 0)
+							num_empty_chunx++;
+					
+						return true;
+					}
+				}
+
+			}
+
+		};
+
+
+		
+		class iterator
+		{
+			public:
+				typedef struct forward_iterator_tag iterator_category;
+				typedef unsigned int value_type;
+				typedef ptrdiff_t difference_type;
+				typedef const int reference;
+
+				bool operator==(const iterator& i) const
+				{
+					return block == i.block && bit == i.bit;
+				}
+
+				bool operator!=(const iterator& i) const
+				{
+					return ! (*this==i);
+				}
+				
+				iterator(const FaceSet& fs, bool end)
+				:s(fs)
+				{
+					if(end)
+					{
+						block = s.blocks.size();
+						bit=0;
+					}
+					else
+					{
+						block=0;
+						find_next_block_and_bit();
+					}
+				}
+
+				void find_next_block_and_bit()
+				{
+
+					//Find the first non-empty block
+					for(; block < s.blocks.size() && s.blocks[block].is_empty(); block++)
+					{}
+					bit=0;
+
+					//Find the first set bit.
+					if(block != s.blocks.size())
+						for(bit=0; bit<Block::Bits; bit++)
+							if(s.blocks[block].get(bit))
+								break;
+
+					assert(bit != Block::Bits);
+				}
+				
+				void operator++()
+				{
+					bit++;
+					//Find the next bit in the current block
+					for(; bit<Block::Bits; bit++)
+					{
+						if(s.blocks[block].get(bit))
+							return;
+					}
+					
+					block++;
+					//else we're onto the noxt block
+					find_next_block_and_bit();
+				}
+				
+				
+				const C* operator*()
+				{
+					return (bit + block * Block::Bits) + s.base;
+				}
+				
+			private:
+				const FaceSet& s;
+				unsigned int block;
+				int bit;
+
+		};
+
+		
+		const C* base;
+
+	public:
+
+		vector<Block> blocks;
+
+		iterator begin()
+		{
+			return iterator(*this, false);
+		}
+
+		iterator end()
+		{
+			return iterator(*this, true);
+		}
+
+
+		FaceSet(const vector<C>& v)
+		:base(v.data())
+		{
+			int sz = v.size();
+
+			blocks.resize((sz + Block::Bits-1) / Block::Bits);
+
+			for(auto& b:blocks)
+				b.do_clear();
+		}
+		
+
+		void clear()
+		{
+			for(auto& b:blocks)
+				b.lazy_clear=true;
+		}
+		
+		void flip(const C* c)
+		{
+			int n = c - base;
+			int block = n / Block::Bits;
+			int bit = n % Block::Bits;
+
+			blocks[block].flip(bit);
+		}
+
+		int count(const C* c)
+		{
+			int n = c - base;
+			int block = n / Block::Bits;
+			int bit = n % Block::Bits;
+			return blocks[block].get(bit);
+		}
+
+		int erase(const C* c)
+		{
+			int n = c - base;
+			int block = n / Block::Bits;
+			int bit = n % Block::Bits;
+			return blocks[block].erase(bit);
+		}
+
+};
 
 #ifdef DEBUG
 template<class C, size_t Size> class Array: private array<C, Size>
@@ -655,7 +896,8 @@ double tinsertactive=0;
 
 #define P(X) cerr << #X " = " << X *1000 << " ms " << endl;
 	
-	unordered_set<const Face*> faces_active;
+	//unordered_set<const Face*> faces_active;
+	FaceSet<Face> faces_active(faces);
 
 	for(const auto& v: vertices)
 	{
@@ -930,14 +1172,9 @@ teraseincoming += T.reset();
 		{
 			if(e.edge->y_at_x_of(v) > vertex_y)
 				break;
-
+				
 			for(auto& f:e.edge->faces)
-			{
-				if(faces_active.count(f))
-					faces_active.erase(f);
-				else
-					faces_active.insert(f);
-			}
+				faces_active.flip(f);
 		}
 
 tfacesactive+=T.reset();
