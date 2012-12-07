@@ -63,10 +63,6 @@ using namespace TooN;
 // faster in the benchmarks, respectively. Without the speedup, the set
 // access was dominating the rendering time.
 //
-// It provides no .size() and .size() would be O(N) anyway.
-//
-// .empty() is O(N)
-//
 // So it's very much not premature optimization :)
 //
 template<class C>
@@ -194,14 +190,10 @@ class FaceSet
 
 		
 		const C* base;
-		vector<Block> blocks;
 
 	public:
 
-		bool empty()
-		{
-			return all_of(blocks.begin(), blocks.end(), [](const Block& b){return b.is_empty;});
-		}
+		vector<Block> blocks;
 
 		iterator begin()
 		{
@@ -1164,58 +1156,69 @@ teraseincoming += T.reset();
 
 		faces_active.clear();
 		
-for(const auto& e:active_edges)
-	for(auto& f:e.edge->faces)
-		faces_active.flip(f);
-
-assert(faces_active.empty());
-
+		unordered_set<const Face*> faces_at_vertex;
 		//Where are we?
-		if(true)//first_candidate-active_edges.begin() < (ptrdiff_t)active_edges.size()/2)
+		auto v_pos=lower_bound(active_edges.begin(), active_edges.end(), vertex_y,
+		                                 [&](const ActiveEdge& e, double y)
+										 {
+										 	return e.y < y;
+										 });
+		if(v_pos-active_edges.begin() < (ptrdiff_t)active_edges.size()/2)
 		{
 			for(const auto& e:active_edges)
 			{
 				if(e.y > vertex_y)
 					break;
 				
+				//Only consider faces which could possibly
+				//span this vertex.
 				for(auto& f:e.edge->faces)
 					faces_active.flip(f);
 			}
+
+tfacesactive+=T.reset();
+			//Since we're at a vertex, we may have previously added faces 
+			//associted with this vertex. If so, then there must be both a left
+			//and right edge associated with the face at this vertex.
+			//
+			//If a face is active and associated with this vertex, then we
+			//have no remaining active edges associated with the face. So, we
+			//need to explicitly remove all faces associated with this vertex.
+			//
+			//This is because faces associated with the vertex cannot occlude the
+			//vertex.
+			//
+			//However, keep a list of these faces since we'll need them later to 
+			//determine the visibility of edges coming from this vertex.
+			for(auto e:v.left_edges)
+				for(auto f:e->faces)
+					if(faces_active.erase(f))
+						faces_at_vertex.insert(f);
+tfacesatvertex+=T.reset();
 		}
 		else
 		{
 			for(auto e = active_edges.rbegin() ; e != active_edges.rend(); e++)
 			{
-				if(e->y <= vertex_y)
+				if(e->y < vertex_y)
 					break;
 				
+				//Only consider faces which could possibly
+				//span this vertex.
 				for(auto& f:e->edge->faces)
 					faces_active.flip(f);
 			}
+tfacesactive+=T.reset();
+			//Since we went from bottom to top, the sense is inverted.
+			for(auto e:v.left_edges)
+				for(auto f:e->faces)
+					if(!faces_active.erase(f))
+						faces_at_vertex.insert(f);
+tfacesatvertex+=T.reset();
 		}
 
-tfacesactive+=T.reset();
 
-		//Since we're at a vertex, we may have previously added faces 
-		//associted with this vertex. If so, then there must be both a left
-		//and right edge associated with the face at this vertex.
-		//
-		//If a face is active and associated with this vertex, then we
-		//have no remaining active edges associated with the face. So, we
-		//need to explicitly remove all faces associated with this vertex.
-		//
-		//This is because faces associated with the vertex cannot occlude the
-		//vertex.
-		//
-		//However, keep a list of these faces since we'll need them later to 
-		//determine the visibility of edges coming from this vertex.
-		unordered_set<const Face*> faces_at_vertex;
-		for(auto e:v.left_edges)
-			for(auto f:e->faces)
-				if(faces_active.erase(f))
-					faces_at_vertex.insert(f);
 
-tfacesatvertex+=T.reset();
 
 		//Now, we need to check the vertex against all remaining active planes to 
 		//see if it is occluded.
