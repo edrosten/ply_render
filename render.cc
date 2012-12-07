@@ -343,6 +343,11 @@ struct Edge
 	Vertex *vertex1, *vertex2;
 	static_vector<Face*, 2> faces;
 
+	int occlusion_depth;
+	Vector<3> previous_3d;
+	Vector<2> previous_2d;
+	static_vector<Face*, 2> faces_above, faces_below;
+
 	inline Edge(Vertex*v1, Vertex* v2);
 
 	//y as a function of x, where x is the x position
@@ -664,12 +669,8 @@ struct EdgeSegment
 
 struct ActiveEdge
 {
-	const Edge* edge;
+	Edge* edge;
 	F(unordered_set<const Face*> occluding_faces;)
-	int occlusion_depth;
-	Vector<3> previous_3d;
-	Vector<2> previous_2d;
-	static_vector<Face*, 2> faces_above, faces_below;
 	int index;
 	double y;
 };
@@ -1002,11 +1003,11 @@ tsortcrossing += T.reset();
 			//If the previous occlusion depth was zero, emit an edge from the previous point
 			//to the current point. Note that this will generate a superfluous edge pair if
 			//the front edge has no faces!
-			if(back.occlusion_depth==0)
+			if(back.edge->occlusion_depth==0)
 			{
 				EdgeSegment e;
-				e.a3d = back.previous_3d;
-				e.a2d = back.previous_2d;
+				e.a3d = back.edge->previous_3d;
+				e.a2d = back.edge->previous_2d;
 
 				e.b3d = c.back_pos;
 				e.b2d = c.cam2d;
@@ -1021,7 +1022,7 @@ tsortcrossing += T.reset();
 			//
 			//The assertions hold only if there are no self-intersecting faces.
 			//Therefore for safety, leave them out.
-			for(auto f: front.faces_above)
+			for(auto f: front.edge->faces_above)
 				if(c.back_was_above)
 				{
 					//assert(back.occluding_faces.count(f) != 0);
@@ -1029,21 +1030,21 @@ tsortcrossing += T.reset();
 						back.occlusion_depth--;
 					)
 
-					NOTF(back.occlusion_depth = max(0, back.occlusion_depth-1);)
+					NOTF(back.edge->occlusion_depth = max(0, back.edge->occlusion_depth-1);)
 				}
 				else
 				{
 					F(assert(back.occluding_faces.count(f) == 0);)
 					F(back.occluding_faces.insert(f);)
-					back.occlusion_depth++;
+					back.edge->occlusion_depth++;
 				}
 
-			for(auto f: front.faces_below)
+			for(auto f: front.edge->faces_below)
 				if(c.back_was_above)
 				{
 					F(assert(back.occluding_faces.count(f) == 0);)
 					F(back.occluding_faces.insert(f);)
-					back.occlusion_depth++;
+					back.edge->occlusion_depth++;
 				}
 				else
 				{
@@ -1051,12 +1052,12 @@ tsortcrossing += T.reset();
 					F(if(back.occluding_faces.erase(f))
 						back.occlusion_depth--;)
 
-					NOTF(back.occlusion_depth = max(0, back.occlusion_depth-1);)
+					NOTF(back.edge->occlusion_depth = max(0, back.edge->occlusion_depth-1);)
 				}
 
 			//Record the previous vertex posision.
-			back.previous_2d = c.cam2d;
-			back.previous_3d = c.back_pos;
+			back.edge->previous_2d = c.cam2d;
+			back.edge->previous_3d = c.back_pos;
 		}
 
 tproccrossing+=T.reset();
@@ -1097,11 +1098,11 @@ tproccrossing+=T.reset();
 		auto first_incoming_edge = find_if(active_edges.begin(), active_edges.end(), edge_terminates_here);
 
 		for(auto e = first_incoming_edge; e < active_edges.end(); e++)
-			if(edge_terminates_here(*e) && e->occlusion_depth==0)
+			if(edge_terminates_here(*e) && e->edge->occlusion_depth==0)
 			{
 				EdgeSegment s;
-				s.a3d = e->previous_3d;
-				s.a2d = e->previous_2d;
+				s.a3d = e->edge->previous_3d;
+				s.a2d = e->edge->previous_2d;
 
 				s.b3d = v.cam3d;
 				s.b2d = v.cam2d;
@@ -1245,14 +1246,14 @@ tinsertpos += T.reset();
 		//Find out which faces are (a) active and (b) belong to the current vertex.
 		vector<ActiveEdge> right;
 		
-		for(const Edge* e:v.right_edges)
+		for(Edge* e:v.right_edges)
 		{
 			ActiveEdge a;
 			a.edge = e;
 			F(a.occluding_faces = occluders;)
-			a.occlusion_depth = occlusion_depth;
-			a.previous_3d=v.cam3d;
-			a.previous_2d=v.cam2d;
+			e->occlusion_depth = occlusion_depth;
+			e->previous_3d=v.cam3d;
+			e->previous_2d=v.cam2d;
 
 			//First, remove any faces associated with the current edge
 			vector<const Face*> to_be_added;
@@ -1260,12 +1261,12 @@ tinsertpos += T.reset();
 				if(faces_at_vertex.count(f))
 				{
 					faces_at_vertex.erase(f);
-					a.faces_above.push_back(f);
+					e->faces_above.push_back(f);
 				}
 				else
 				{
 					to_be_added.push_back(f);
-					a.faces_below.push_back(f);
+					e->faces_below.push_back(f);
 				}
 			
 			//Now any remaining faces are active and may or may not hide 
@@ -1282,8 +1283,8 @@ tinsertpos += T.reset();
 					//The current active face really shouldn't be in the way already
 					F(assert(a.occluding_faces.count(f) == 0);)
 
-					a.occlusion_depth++;
-					F(a.occluding_faces.insert(f);)
+					e->occlusion_depth++;
+					F(a->occluding_faces.insert(f);)
 				}
 			}
 
