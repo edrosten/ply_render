@@ -1,4 +1,4 @@
-#define DEBUG
+//#define DEBUG
 //#undef DEBUG
 
 #ifdef DEBUG
@@ -880,20 +880,8 @@ T.reset();
 			active_edges[i].y = active_edges[i].edge->y_at_x_of(v);
 		}
 tind += T.reset();
-		
-/*
-		struct Index
-		{	
-			double y;
-			int index;
-		}
-		vector<Index> indices(active_edges.size());
-		for(unsigned int i=0; i < active_edges.size(); i++)
-		{
-			indices[i].index=i;
-			indices[i].y = active_edges[i].y_at_x_of(v);
-		}
-*/
+
+
 		//Sort edges top to bottom according to the intersection with the sweep
 		//line using bubble sort since each exchange corresponds to a crossing.
 		//Thanks, Tom!!!
