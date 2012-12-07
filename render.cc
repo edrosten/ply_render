@@ -1127,7 +1127,7 @@ teraseincoming += T.reset();
 		faces_active.clear();
 		for(const auto& e:active_edges)
 		{
-			if(e.edge->y_at_x_of(v) > vertex_y)
+			if(e.y > vertex_y)
 				break;
 				
 			for(auto& f:e.edge->faces)
