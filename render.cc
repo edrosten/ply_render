@@ -343,6 +343,16 @@ struct Edge
 	Vertex *vertex1, *vertex2;
 	static_vector<Face*, 2> faces;
 
+	//Parameterize the edge as:
+	//A + lambda B
+	//where A is vertex 1 and B is vertex2 - vertex1.
+	//
+	//In 2 D, this paramterizes as the vanishing point as the 
+	//start point.
+	Vector<3> start, direction3;
+	Vector<2> vanishing_point, direction2;
+
+
 	inline Edge(Vertex*v1, Vertex* v2);
 
 	//y as a function of x, where x is the x position
@@ -601,6 +611,10 @@ inline Edge::Edge(Vertex*v1, Vertex* v2)
 :vertex1(left(v1, v2)),
  vertex2(right(v1, v2))
 {
+	start = vertex1->cam3d;
+	direction3 = vertex1->cam3d - vertex2->cam3d;
+	vanishing_point = project(direction3);
+	direction2 = vertex1->cam2d - vanishing_point;
 }
 
 inline double Edge::y_at_x_of(const Vertex& v_x, bool debug_no_checks) const
@@ -910,15 +924,25 @@ tind += T.reset();
 					// d = A3 / (A3 + l * B3)
 					//
 
-					Vector<3> A = e1.edge->vertex1->cam3d; //First point
-					Vector<3> B = e1.edge->vertex1->cam3d - e1.edge->vertex2->cam3d; //Direction
-					Vector<2> b = project(B); //Start point of the line in 2D (the vanishing point)
-					Vector<2> a = e1.edge->vertex1->cam2d - b; //Direction of the line in 2D
+//					Vector<3> A = e1.edge->vertex1->cam3d; //First point
+//					Vector<3> B = e1.edge->vertex1->cam3d - e1.edge->vertex2->cam3d; //Direction
+//					Vector<2> b = project(B); //Start point of the line in 2D (the vanishing point)
+//					Vector<2> a = e1.edge->vertex1->cam2d - b; //Direction of the line in 2D
 
-					Vector<3> C = e2.edge->vertex1->cam3d;
-					Vector<3> D = e2.edge->vertex1->cam3d - e2.edge->vertex2->cam3d;
-					Vector<2> d = project(D);
-					Vector<2> c = e2.edge->vertex1->cam2d - d;
+					Vector<3> A = e1.edge->start;
+					Vector<3> B = e1.edge->direction3;
+					Vector<2> b = e1.edge->vanishing_point;
+					Vector<2> a = e1.edge->direction2;
+
+					Vector<3> C = e2.edge->start;
+					Vector<3> D = e2.edge->direction3;
+					Vector<2> c = e2.edge->vanishing_point;
+					Vector<2> d = e2.edge->direction2;
+
+//					Vector<3> C = e2.edge->vertex1->cam3d;
+//					Vector<3> D = e2.edge->vertex1->cam3d - e2.edge->vertex2->cam3d;
+//					Vector<2> d = project(D);
+//					Vector<2> c = e2.edge->vertex1->cam2d - d;
 
 					Matrix<2> m;
 					m.T()[0] = a;
