@@ -63,6 +63,10 @@ using namespace TooN;
 // faster in the benchmarks, respectively. Without the speedup, the set
 // access was dominating the rendering time.
 //
+// It provides no .size() and .size() would be O(N) anyway.
+//
+// .empty() is O(N)
+//
 // So it's very much not premature optimization :)
 //
 template<class C>
@@ -190,10 +194,14 @@ class FaceSet
 
 		
 		const C* base;
+		vector<Block> blocks;
 
 	public:
 
-		vector<Block> blocks;
+		bool empty()
+		{
+			return all_of(blocks.begin(), blocks.end(), [](const Block& b){return b.is_empty;});
+		}
 
 		iterator begin()
 		{
@@ -498,8 +506,9 @@ struct Face
 	static_vector<Edge*, 3> edges;
 	Vector<4> plane;
 	Vector<4> cam_plane;
+	double max_y;
 
-	void compute_normals(const SE3<>& E)
+	void compute_data(const SE3<>& E)
 	{
 
 		//In the current implementation (above)
@@ -540,6 +549,14 @@ struct Face
 		// (xE)^t (Tp) = 0
 		// T = inv(E^t)
 		cam_plane = plane * E.inverse(); 
+
+		//Find the lowest point of the face
+		max_y = (*max_element(vertices.begin(), vertices.end(),
+		            [](const Vertex* v1, const Vertex* v2)
+					{
+						return v1->cam2d[1] < v2->cam2d[1];
+					}))->cam2d[1];
+		
 	}
 
 	double depth(const Vector<2>& cam2d) const
@@ -557,7 +574,7 @@ struct Face
 		//
 		//lambda = p0.n / f.n
 		//
-		//From compute_normals() above, the plane equation is stored as:
+		//From compute_data() above, the plane equation is stored as:
 		//cam_plane = (n1 n2 n3 -p0.n)
 		//
 		//so:
@@ -822,9 +839,10 @@ X("populate_faces");
 
 X("sort_right_edges");
 
+	
 	//Compute the face normals
 	for(auto& f:faces)
-		f.compute_normals(E);
+		f.compute_data(E);
 
 X("compute_normals");
 
@@ -1083,6 +1101,8 @@ tproccrossing+=T.reset();
 		//some of them may be occluded by faces belonging to the vertex.
 
 
+		double vertex_y = v.cam2d[1];
+
 		//Now remove all left edges from active_edges
 		//
 		//Note that this is O(Num_of_active_edges). IF active_edges was a list
@@ -1094,8 +1114,6 @@ tproccrossing+=T.reset();
 		//anyway, so we could never reduce the order of this section. Since using a list
 		//would worsen the constant greatly, using a list would almost certainly
 		//worsen the overall speed.
-		//
-		//Also 
 
 		auto edge_terminates_here = [&](const ActiveEdge& e)
 		{
@@ -1103,8 +1121,16 @@ tproccrossing+=T.reset();
 		};
 		
 		//First, emit any unoccluded edges terminating at this vertex.
-		//TODO: speed this up using lower_bound on height?
-		auto first_incoming_edge = find_if(active_edges.begin(), active_edges.end(), edge_terminates_here);
+
+		//Edges are sorted by Y, so we can get to about the right place
+		//very quicky.
+		auto first_candidate=lower_bound(active_edges.begin(), active_edges.end(), vertex_y,
+		                                 [&](const ActiveEdge& e, double y)
+										 {
+										 	return e.y < y;
+										 });
+
+		auto first_incoming_edge = find_if(first_candidate, active_edges.end(), edge_terminates_here);
 
 		for(auto e = first_incoming_edge; e < active_edges.end(); e++)
 			if(edge_terminates_here(*e) && e->edge->occlusion_depth==0)
@@ -1118,6 +1144,9 @@ tproccrossing+=T.reset();
 				
 				output.push_back(s);
 			}
+			else if(e->y > vertex_y)
+				break;
+
 toutputcrossing += T.reset();
 		
 		auto erase_from = 	remove_if(first_incoming_edge, active_edges.end(), edge_terminates_here);
@@ -1132,16 +1161,37 @@ teraseincoming += T.reset();
 		//
 		//Possible TODO: one could perform a walk upwards or downwards, depending on
 		//how close to the top or bottom the current vertex is, for a factor of 2 saving.
-		double vertex_y = v.cam2d[1];
 
 		faces_active.clear();
-		for(const auto& e:active_edges)
+		
+for(const auto& e:active_edges)
+	for(auto& f:e.edge->faces)
+		faces_active.flip(f);
+
+assert(faces_active.empty());
+
+		//Where are we?
+		if(true)//first_candidate-active_edges.begin() < (ptrdiff_t)active_edges.size()/2)
 		{
-			if(e.y > vertex_y)
-				break;
+			for(const auto& e:active_edges)
+			{
+				if(e.y > vertex_y)
+					break;
 				
-			for(auto& f:e.edge->faces)
-				faces_active.flip(f);
+				for(auto& f:e.edge->faces)
+					faces_active.flip(f);
+			}
+		}
+		else
+		{
+			for(auto e = active_edges.rbegin() ; e != active_edges.rend(); e++)
+			{
+				if(e->y <= vertex_y)
+					break;
+				
+				for(auto& f:e->edge->faces)
+					faces_active.flip(f);
+			}
 		}
 
 tfacesactive+=T.reset();
