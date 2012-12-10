@@ -1163,7 +1163,7 @@ teraseincoming += T.reset();
 										 {
 										 	return e.y < y;
 										 });
-		if(v_pos-active_edges.begin() < (ptrdiff_t)active_edges.size()/2)
+		if(1)//v_pos-active_edges.begin() < (ptrdiff_t)active_edges.size()/2)
 		{
 			for(const auto& e:active_edges)
 			{
