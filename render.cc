@@ -1385,7 +1385,7 @@ P(U.reset());
 
 int main()
 {
-	Model m("turbine2.ply");
+	Model m("bunny.ply");
 	ImageRef size(640, 480);
 
 	Camera::Linear cam;
