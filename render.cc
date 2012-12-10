@@ -18,13 +18,10 @@
 #include <cassert>
 
 #include "model_loader.h"
-#include <cvd/videodisplay.h>
-#include <cvd/gl_helpers.h>
 #include <cvd/timer.h>
-#include <cvd/camera.h>
-#include <cvd/vector_image_ref.h>
 #include <algorithm>
 #include <exception>
+#include <map>
 #include <set>
 #include <fstream>
 #include <unordered_map>
@@ -33,6 +30,9 @@
 #include <TooN/se3.h>
 #include <TooN/SymEigen.h>
 #include <tag/stdpp.h>
+
+#include "render.h"
+
 using namespace CVD;
 using namespace std;
 using namespace tag;
@@ -676,13 +676,6 @@ inline bool Edge::a_is_on_left(const Vertex* a, const Vertex* b) const
 	assert(a->cam2d[0] != b->cam2d[0]);
 	return a->cam2d[0] < b->cam2d[0];
 }
-
-
-struct EdgeSegment
-{
-	Vector<3> a3d, b3d;
-	Vector<2> a2d, b2d;
-};
 
 
 
@@ -1382,26 +1375,3 @@ P(U.reset());
 
 	return output;
 }
-
-int main()
-{
-	Model m("bunny.ply");
-	ImageRef size(640, 480);
-
-	Camera::Linear cam;
-	cam.get_parameters()[0] = 500;
-	cam.get_parameters()[1] = 500;
-	cam.get_parameters().slice<2,2>() = vec(size)/2;
-
-
-	SE3<> E = SE3<>::exp(makeVector(-.2,-.2,3,0,0,0));
-	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
-	
-	vector<EdgeSegment> a = render(E, m);
-
-	for(auto e:a)
-	{
-		cout << cam.project(e.a2d) << endl << cam.project(e.b2d) << endl << endl;
-	}
-}
-
