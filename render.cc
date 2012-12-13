@@ -358,6 +358,7 @@ struct Edge
 	Vector<2> previous_2d;
 	static_vector<Face*, 2> faces_above, faces_below;
 	F(unordered_set<const Face*> occluding_faces;)
+	double y;
 
 	inline Edge(Vertex*v1, Vertex* v2);
 
@@ -683,7 +684,6 @@ inline bool Edge::a_is_on_left(const Vertex* a, const Vertex* b) const
 struct ActiveEdge
 {
 	Edge* edge;
-	int index;
 	double y;
 };
 
@@ -694,7 +694,7 @@ struct Intersection
 	Vector<3> front_pos;
 	Vector<3> back_pos;
 		
-	int front_edge, back_edge;
+	Edge* front_edge, *back_edge;
 	bool back_was_above;
 };
 
@@ -994,7 +994,6 @@ double tinsertactive=0;
 T.reset();
 		for(unsigned int i=0; i < active_edges.size(); i++)
 		{
-			active_edges[i].index=i;
 			active_edges[i].y = active_edges[i].edge->y_at_x_of(v);
 		}
 tind += T.reset();
@@ -1059,16 +1058,16 @@ tind += T.reset();
 
 					if(e1_pos[2] < e2_pos[2])
 					{
-						intersection.front_edge = e1.index;
-						intersection.back_edge = e2.index;
+						intersection.front_edge = e1.edge;
+						intersection.back_edge = e2.edge;
 						intersection.front_pos = e1_pos;
 						intersection.back_pos = e2_pos;
 						intersection.back_was_above=false;
 					}
 					else
 					{
-						intersection.front_edge = e2.index;
-						intersection.back_edge = e1.index;
+						intersection.front_edge = e2.edge;
+						intersection.back_edge = e1.edge;
 						intersection.front_pos = e2_pos;
 						intersection.back_pos = e1_pos;
 						intersection.back_was_above=true;
@@ -1088,11 +1087,6 @@ tind += T.reset();
 tbubble += T.reset();
 		assert(is_sorted(active_edges.begin(), active_edges.end(), debug_order_at_v));
 
-
-		//Now create an ActiveEdge lookup based on the indices.
-		vector<ActiveEdge*> active_edge_lookup(active_edges.size());
-		for(auto& a:active_edges)
-			active_edge_lookup[a.index] = &a;
 tlookup += T.reset();
 
 		//Sort the intersections left to right. Given there are up to n^2 intersections
@@ -1114,17 +1108,17 @@ tsortcrossing += T.reset();
 		//Now process the crossings
 		for(const auto& c: crossings)
 		{
-			ActiveEdge& front = *active_edge_lookup[c.front_edge];
-			ActiveEdge& back  = *active_edge_lookup[c.back_edge];
+			Edge& front = *c.front_edge;
+			Edge& back  = *c.back_edge;
 
 			//If the previous occlusion depth was zero, emit an edge from the previous point
 			//to the current point. Note that this will generate a superfluous edge pair if
 			//the front edge has no faces!
-			if(back.edge->occlusion_depth==0)
+			if(back.occlusion_depth==0)
 			{
 				EdgeSegment e;
-				e.a3d = back.edge->previous_3d;
-				e.a2d = back.edge->previous_2d;
+				e.a3d = back.previous_3d;
+				e.a2d = back.previous_2d;
 
 				e.b3d = c.back_pos;
 				e.b2d = c.cam2d;
@@ -1139,7 +1133,7 @@ tsortcrossing += T.reset();
 			//
 			//The assertions hold only if there are no self-intersecting faces.
 			//Therefore for safety, leave them out.
-			for(auto f: front.edge->faces_above)
+			for(auto f: front.faces_above)
 				if(c.back_was_above)
 				{
 					//assert(back.occluding_faces.count(f) != 0);
@@ -1147,21 +1141,21 @@ tsortcrossing += T.reset();
 						back.occlusion_depth--;
 					)
 
-					NOTF(back.edge->occlusion_depth = max(0, back.edge->occlusion_depth-1);)
+					NOTF(back.occlusion_depth = max(0, back.occlusion_depth-1);)
 				}
 				else
 				{
 					F(assert(back.occluding_faces.count(f) == 0);)
 					F(back.occluding_faces.insert(f);)
-					back.edge->occlusion_depth++;
+					back.occlusion_depth++;
 				}
 
-			for(auto f: front.edge->faces_below)
+			for(auto f: front.faces_below)
 				if(c.back_was_above)
 				{
 					F(assert(back.occluding_faces.count(f) == 0);)
 					F(back.occluding_faces.insert(f);)
-					back.edge->occlusion_depth++;
+					back.occlusion_depth++;
 				}
 				else
 				{
@@ -1169,12 +1163,12 @@ tsortcrossing += T.reset();
 					F(if(back.occluding_faces.erase(f))
 						back.occlusion_depth--;)
 
-					NOTF(back.edge->occlusion_depth = max(0, back.edge->occlusion_depth-1);)
+					NOTF(back.occlusion_depth = max(0, back.occlusion_depth-1);)
 				}
 
 			//Record the previous vertex posision.
-			back.edge->previous_2d = c.cam2d;
-			back.edge->previous_3d = c.back_pos;
+			back.previous_2d = c.cam2d;
+			back.previous_3d = c.back_pos;
 		}
 
 tproccrossing+=T.reset();
