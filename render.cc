@@ -684,7 +684,6 @@ inline bool Edge::a_is_on_left(const Vertex* a, const Vertex* b) const
 struct ActiveEdge
 {
 	Edge* edge;
-	double y;
 };
 
 
@@ -994,7 +993,7 @@ double tinsertactive=0;
 T.reset();
 		for(unsigned int i=0; i < active_edges.size(); i++)
 		{
-			active_edges[i].y = active_edges[i].edge->y_at_x_of(v);
+			active_edges[i].edge->y = active_edges[i].edge->y_at_x_of(v);
 		}
 tind += T.reset();
 
@@ -1010,7 +1009,7 @@ tind += T.reset();
 			
 			for(int i=1; i < n; i++)
 			{
-				if(active_edges[i-1].y > active_edges[i].y)
+				if(active_edges[i-1].edge->y > active_edges[i].edge->y)
 				{
 					swap(active_edges[i-1], active_edges[i]);
 
@@ -1211,7 +1210,7 @@ tproccrossing+=T.reset();
 		auto first_candidate=lower_bound(active_edges.begin(), active_edges.end(), vertex_y,
 		                                 [&](const ActiveEdge& e, double y)
 										 {
-										 	return e.y < y;
+										 	return e.edge->y < y;
 										 });
 
 		auto first_incoming_edge = find_if(first_candidate, active_edges.end(), edge_terminates_here);
@@ -1228,7 +1227,7 @@ tproccrossing+=T.reset();
 				
 				output.push_back(s);
 			}
-			else if(e->y > vertex_y)
+			else if(e->edge->y > vertex_y)
 				break;
 
 toutputcrossing += T.reset();
@@ -1255,7 +1254,7 @@ teraseincoming += T.reset();
 		auto v_pos=lower_bound(active_edges.begin(), active_edges.end(), vertex_y,
 		                                 [&](const ActiveEdge& e, double y)
 										 {
-										 	return e.y < y;
+										 	return e.edge->y < y;
 										 });
 		
 		bool from_top = v_pos-active_edges.begin() < (ptrdiff_t)active_edges.size()/2;
@@ -1264,7 +1263,7 @@ teraseincoming += T.reset();
 		{
 			for(const auto& e:active_edges)
 			{
-				if(e.y > vertex_y)
+				if(e.edge->y > vertex_y)
 					break;
 				
 				//Only consider faces which could possibly
@@ -1297,7 +1296,7 @@ tfacesatvertex+=T.reset();
 		{
 			for(auto e = active_edges.rbegin() ; e != active_edges.rend(); e++)
 			{
-				if(e->y < vertex_y)
+				if(e->edge->y < vertex_y)
 					break;
 				
 				//Only consider faces which could possibly
