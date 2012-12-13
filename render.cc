@@ -117,6 +117,7 @@ class FaceSet
 				typedef unsigned int value_type;
 				typedef ptrdiff_t difference_type;
 				typedef const int reference;
+				typedef void pointer;
 
 				bool operator==(const iterator& i) const
 				{
@@ -834,6 +835,10 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 	fae intersections, then this will lead to cascading errors. Performing a full search each
 	time will limit the drawing errors.
 
+	
+	The vertical walk in 6.6 can be either from the top or bottom. If it is from the bottom then
+	the vertical walk in 6.8 must also be from the bottom. To increase speed, one can choose which
+	end to search from depending on which end the vertex in question is closest to.
 
 
 	*/
@@ -1242,21 +1247,26 @@ tremoveincoming += T.reset();
 teraseincoming += T.reset();
 
 		//Perform a vertical walk downwards along edges to see which faces come and go
-		//as the walk is performed, until we hit the current vertex.
+		//as the walk is performed, until we hit the current vertex. Remember incoming
+		//edges are gone.
 		//
-		//Possible TODO: one could perform a walk upwards or downwards, depending on
-		//how close to the top or bottom the current vertex is, for a factor of 2 saving.
+		//One could perform a walk upwards or downwards, depending on how close
+		//to the top or bottom the current vertex is, for a factor of 2 saving. However,
+		//one must perform the later miniture walk in the same direction.
 
 		faces_active.clear();
-		
 		unordered_set<const Face*> faces_at_vertex;
+
 		//Where are we?
 		auto v_pos=lower_bound(active_edges.begin(), active_edges.end(), vertex_y,
 		                                 [&](const ActiveEdge& e, double y)
 										 {
 										 	return e.y < y;
 										 });
-		if(1)//v_pos-active_edges.begin() < (ptrdiff_t)active_edges.size()/2)
+		
+		bool from_top = v_pos-active_edges.begin() < (ptrdiff_t)active_edges.size()/2;
+
+		if(from_top)
 		{
 			for(const auto& e:active_edges)
 			{
@@ -1305,13 +1315,10 @@ tfacesactive+=T.reset();
 			//Since we went from bottom to top, the sense is inverted.
 			for(auto e:v.left_edges)
 				for(auto f:e->faces)
-					if(!faces_active.erase(f))
+					if(faces_active.erase(f))
 						faces_at_vertex.insert(f);
 tfacesatvertex+=T.reset();
 		}
-
-
-
 
 		//Now, we need to check the vertex against all remaining active planes to 
 		//see if it is occluded.
@@ -1399,10 +1406,18 @@ tinsertpos += T.reset();
 
 
 		//Find out which faces are (a) active and (b) belong to the current vertex.
-		vector<ActiveEdge> right;
+		vector<ActiveEdge> right(v.right_edges.size());
 		
-		for(Edge* e:v.right_edges)
+		for(unsigned int i=0; i < v.right_edges.size(); i++)
 		{
+			int j;
+			if(from_top)
+				j=i;
+			else
+				j = v.right_edges.size() - 1 - i;
+
+			Edge* e = v.right_edges[j];
+
 			ActiveEdge a;
 			a.edge = e;
 			F(a.occluding_faces = occluders;)
@@ -1447,8 +1462,10 @@ tinsertpos += T.reset();
 			for(auto& f:to_be_added)
 				faces_at_vertex.insert(f);
 
-			right.push_back(a);
+			right[j] = a;
 		}
+
+
 tnewactiveedges+=T.reset();
 
 		active_edges.insert(here, right.begin(), right.end());

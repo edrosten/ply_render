@@ -12,7 +12,7 @@ using namespace std;
 
 int main()
 {
-	Model m("bunny.ply");
+	Model m("turbine2.ply");
 	
 	ImageRef size(640,480);
 	Camera::Linear cam;
