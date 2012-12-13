@@ -1309,26 +1309,6 @@ teraseincoming += T.reset();
 				for(auto& f:e.edge->faces)
 					faces_active.flip(f);
 			}
-
-tfacesactive+=T.reset();
-			//Since we're at a vertex, we may have previously added faces 
-			//associted with this vertex. If so, then there must be both a left
-			//and right edge associated with the face at this vertex.
-			//
-			//If a face is active and associated with this vertex, then we
-			//have no remaining active edges associated with the face. So, we
-			//need to explicitly remove all faces associated with this vertex.
-			//
-			//This is because faces associated with the vertex cannot occlude the
-			//vertex.
-			//
-			//However, keep a list of these faces since we'll need them later to 
-			//determine the visibility of edges coming from this vertex.
-			for(auto e:v.left_edges)
-				for(auto f:e->faces)
-					if(faces_active.erase(f))
-						faces_at_vertex.insert(f);
-tfacesatvertex+=T.reset();
 		}
 		else
 		{
@@ -1342,14 +1322,27 @@ tfacesatvertex+=T.reset();
 				for(auto& f:e->edge->faces)
 					faces_active.flip(f);
 			}
-tfacesactive+=T.reset();
-			//Since we went from bottom to top, the sense is inverted.
-			for(auto e:v.left_edges)
-				for(auto f:e->faces)
-					if(faces_active.erase(f))
-						faces_at_vertex.insert(f);
-tfacesatvertex+=T.reset();
 		}
+
+tfacesactive+=T.reset();
+		//Since we're at a vertex, we may have previously added faces 
+		//associted with this vertex. If so, then there must be both a left
+		//and right edge associated with the face at this vertex.
+		//
+		//If a face is active and associated with this vertex, then we
+		//have no remaining active edges associated with the face. So, we
+		//need to explicitly remove all faces associated with this vertex.
+		//
+		//This is because faces associated with the vertex cannot occlude the
+		//vertex.
+		//
+		//However, keep a list of these faces since we'll need them later to 
+		//determine the visibility of edges coming from this vertex.
+		for(auto e:v.left_edges)
+			for(auto f:e->faces)
+				if(faces_active.erase(f))
+					faces_at_vertex.insert(f);
+tfacesatvertex+=T.reset();
 
 		//Now, we need to check the vertex against all remaining active planes to 
 		//see if it is occluded.
