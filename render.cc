@@ -358,7 +358,6 @@ struct Edge
 	Vector<2> previous_2d;
 	static_vector<Face*, 2> faces_above, faces_below;
 	F(unordered_set<const Face*> occluding_faces;)
-	double y;
 
 	inline Edge(Vertex*v1, Vertex* v2);
 
