@@ -341,8 +341,14 @@ struct Face;
 //Edges are stored left most vertex first
 struct Edge
 {
+	//This is purely static information which never changes
 	Vertex *vertex1, *vertex2;
 	static_vector<Face*, 2> faces;
+
+	
+	//This is semi-tynamic information which changes each time
+	//a new transformation is used
+	double gradient;
 
 	//This is dynamic information which is in use
 	//only when the edge is active. It ought to belong to
@@ -626,6 +632,10 @@ inline Edge::Edge(Vertex*v1, Vertex* v2)
 :vertex1(left(v1, v2)),
  vertex2(right(v1, v2))
 {
+	double Dy = vertex2->cam2d[1]-vertex1->cam2d[1];
+	double Dx = vertex2->cam2d[0]-vertex1->cam2d[0];
+
+	gradient = Dy / Dx;
 }
 
 inline double Edge::y_at_x_of(const Vertex& v_x, bool debug_no_checks) const
@@ -656,14 +666,12 @@ inline double Edge::y_at_x_of(const Vertex& v_x, bool debug_no_checks) const
 		assert(x < vertex2->cam2d[0]);
 
 
-		double Dy = vertex2->cam2d[1]-vertex1->cam2d[1];
-		double Dx = vertex2->cam2d[0]-vertex1->cam2d[0];
 		double dx = x - vertex1->cam2d[0];
 
 		assert(dx >= 0);
 		assert(Dx > 0);
 
-		return dx * Dy / Dx + vertex1->cam2d[1];
+		return dx * gradient + vertex1->cam2d[1];
 	}
 }
 
@@ -680,6 +688,10 @@ inline bool Edge::a_is_on_left(const Vertex* a, const Vertex* b) const
 
 
 
+//Apparently it's faster to have y in a special struct, rather than putting
+//it in Edge and have active_edges just be an array of Edge*. Perhaps this is
+//because it keeps the y's close which is important since there are many accesses
+//to this structure.
 struct ActiveEdge
 {
 	Edge* edge;
