@@ -12,6 +12,8 @@
 	#define  NDEBUG
 #endif
 
+#define  NDEBUG
+#define  NDEBUG
 #define F(X)
 #define NOTF(X) X
 
@@ -339,6 +341,10 @@ struct Face;
 //and a list of faces.
 //
 //Edges are stored left most vertex first
+//
+//Somewhat astohishingly, for large, complex models the repeated computation
+//of y_at_x_of() is the slowest part. So, we put a lot of effort into making that
+//quicker by caching values.
 struct Edge
 {
 	//This is purely static information which never changes
@@ -349,6 +355,7 @@ struct Edge
 	//This is semi-tynamic information which changes each time
 	//a new transformation is used
 	double gradient;
+	Vector<2> v1cam2d;
 
 	//This is dynamic information which is in use
 	//only when the edge is active. It ought to belong to
@@ -636,6 +643,8 @@ inline Edge::Edge(Vertex*v1, Vertex* v2)
 	double Dx = vertex2->cam2d[0]-vertex1->cam2d[0];
 
 	gradient = Dy / Dx;
+
+	v1cam2d = vertex1->cam2d;
 }
 
 inline double Edge::y_at_x_of(const Vertex& v_x, bool debug_no_checks) const
@@ -666,12 +675,12 @@ inline double Edge::y_at_x_of(const Vertex& v_x, bool debug_no_checks) const
 		assert(x < vertex2->cam2d[0]);
 
 
-		double dx = x - vertex1->cam2d[0];
+		double dx = x - v1cam2d[0];
 
 		assert(dx >= 0);
 		assert(Dx > 0);
 
-		return dx * gradient + vertex1->cam2d[1];
+		return dx * gradient + v1cam2d[1];
 	}
 }
 
