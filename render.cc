@@ -741,6 +741,106 @@ vector<Vertex> get_sorted_list_of_camera_vertices_without_edges(const SE3<>& E, 
 vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 {
 
+	/* Here's how it works:
+		
+	  1. Create data structures such that evere element (e.g. face) knows
+	     about every related element (each face has a list of vertices and edges).
+
+	  2. Transform vertices and face normals into camera coordinates, and compute
+	     projection of vertices into image coordinates.
+	  
+	  3. For each vertex, in image coordinates record which edges connect on the
+	     left and which connect on the right. For the right hand edges, sort them
+		 from top to bottom accroding to angle.
+
+	  4. Sort the vertices from left to right in image coordinates.
+	  
+	  5. Initialise an empty list of edges, E, called active edges. Each active edge
+	     also records an occlusion depth (integer) and a set of occluding faces. Also
+		 record the start of the current segment. In image coordinates, record which 
+		 edges connect above the line and which connect below.
+
+		 E will be the list of edges intersected by a vertical line which sweeps from
+		 right to left.
+	     
+	  6. For each vertex, V:
+	     
+		 1. A vertex implies a vertical sweep line through the vertex.
+
+		 2. Sort E according to the vertical position of their intersection
+		    with the sweep line, top to bottom. Sort using bubble sort, and record
+			each swap since this implies edges have crossed. For each crossing, compute
+			the position in 2D, and corresponding positions in 3D. Find which edge
+			is in front.
+
+	     3. For each crossing:
+		    
+			1. If the occlusion depth of the back edge is zero, draw it from the start
+			   of its current segment to the crossing point.
+
+			2. For the back edge, set the start of the current segment to the crossing
+			   point.
+
+			3. If the back line starts above and ends below the front line, then remove
+			   the front line's upper edges from the back edge occlusion set, and add the 
+			   front line's lower edges to the occlusion set.
+
+			   Update the occlusion depth to match the size of the occlusion set.
+
+	      4.  Remove every active edge connecting to the current vertex. For each line
+		      removed, draw it if the occlusion depth is zero.
+
+	      5.  To determine the visibility of V , initialise empty sets O,A of faces.
+
+		  6.  Loop over the E vertically top to bottom until and including the
+			  y coordinate of the current vertex is reached. For each edge, for
+			  each connected face insert the face into O. 
+			  
+			  Then discard every face appearing an even number oftimes.
+		  	  
+		  7.  For each face connected to V, if the face is in O, remove it from O and record
+		      it in A. We remove them from the potential occluders, O, since faces connected
+			  to the vertex cannot occlude the vertex.
+
+			  A ray from the camera centre through the vertex will now intersect every face in 
+			  O.
+
+		  7.  For each face compute whether it is in front of or behind V. Keep a set of and 
+		      count of all faces occluding V.
+
+		  8.  It is now time to add all right edges of V into E at the correct place to avoid
+		      disturbing the sort order. For each edge, we also need the its occlusion depth 
+			  which must be >= the occlusion depth of the current vertex.
+
+			  For each edge R in the right edges of V, sorted top to bottom:
+			  
+			  1. For each face connected to R, if the face is in A then remove it from A,
+			     otherwise add it from A.
+
+			  2. For each face in A, determine if the other end of R will be hidden by the 
+			     plane associated with the face face. Use this information and the occlusion
+				 of V to record the occlusion depth and list of occluders associated with R.
+
+
+    Notes:
+
+	Assuming there are no intersecting faces, the actual set of occluders (5, 6.3.3, 6.8.2) is
+	unnecessary. Changes in occlusion can only happen at edges and an even number of crossings
+	with edges of a face means the face cannot be occluding. Therefore it is sufficient and 
+	much faster to increment/decrement a simple count.
+
+    For determining the visibility of a vertex (6.5) if there are incoming edges from the right
+	then it is sufficient to propagate occlusion depths from these edges. However if there are 
+	fae intersections, then this will lead to cascading errors. Performing a full search each
+	time will limit the drawing errors.
+
+
+
+	*/
+
+
+
+
 cvd_timer T;
 cvd_timer U;
 
