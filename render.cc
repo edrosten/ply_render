@@ -100,6 +100,12 @@ class FaceSet
 				data^=mask;
 			}
 
+			void set(int bit)
+			{
+				type mask = type(1) << (bit);
+				data|=mask;
+			}
+
 			bool erase(int bit)
 			{
 				type mask = type(1) << bit;
@@ -225,6 +231,15 @@ class FaceSet
 		{
 			for(auto& b:blocks)
 				b.do_clear();
+		}
+
+		void insert(const C* c)
+		{
+			int n = c - base;
+			int block = n / Block::Bits;
+			int bit = n % Block::Bits;
+
+			blocks[block].set(bit);
 		}
 		
 		void flip(const C* c)
@@ -990,6 +1005,8 @@ double tinsertactive=0;
 	
 	//unordered_set<const Face*> faces_active;
 	FaceSet<Face> faces_active(faces);
+	//FaceSet<Face> faces_at_vertex(faces);
+	unordered_set<const Face*> faces_at_vertex;
 
 	for(const auto& v: vertices)
 	{
@@ -1269,7 +1286,7 @@ teraseincoming += T.reset();
 		//one must perform the later miniture walk in the same direction.
 
 		faces_active.clear();
-		unordered_set<const Face*> faces_at_vertex;
+		faces_at_vertex.clear();
 
 		//Where are we?
 		auto v_pos=lower_bound(active_edges.begin(), active_edges.end(), vertex_y,
@@ -1459,7 +1476,7 @@ tinsertpos += T.reset();
 			//Obviously v1 is on the face, so we can check whether v2
 			//is hidden by the plane (note plane, not face). This tells
 			//us if the line starts off hidden.
-			for(auto& f:faces_at_vertex)
+			for(auto f:faces_at_vertex)
 			{
 
 				if(f->plane_hides(e->vertex2->cam3d))
