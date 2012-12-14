@@ -1,6 +1,6 @@
 #define DEBUG
 #define DEBUG
-//#undef DEBUG
+#undef DEBUG
 
 #ifdef DEBUG
 	#ifndef TOON_CHECK_BOUNDS
@@ -13,8 +13,7 @@
 	#define  NDEBUG
 #endif
 
-#define F(X)
-#define NOTF(X) X
+#define F(X) 
 
 #include <cassert>
 
@@ -46,7 +45,6 @@ using namespace TooN;
 
 
 struct Vertex;
-struct Edge;
 struct Face;
 
 
@@ -58,7 +56,11 @@ struct Face;
 //Somewhat astohishingly, for large, complex models the repeated computation
 //of y_at_x_of() is the slowest part. So, we put a lot of effort into making that
 //quicker by caching values.
-struct Edge
+//
+//This structure defers adding and removing occluders to a derives class
+//in order to allow us to keep track of every occluding face or merely
+//a count of the occluders.
+struct EdgeWithNoOcclusion
 {
 	//This is purely static information which never changes
 	Vertex *vertex1, *vertex2;
@@ -83,9 +85,8 @@ struct Edge
 	Vector<3> previous_3d;
 	Vector<2> previous_2d;
 	static_vector<Face*, 2> faces_above, faces_below;
-	F(unordered_set<const Face*> occluding_faces;)
 
-	inline Edge(Vertex*v1, Vertex* v2);
+	inline EdgeWithNoOcclusion(Vertex*v1, Vertex* v2);
 
 	//y as a function of x, where x is the x position
 	//of a specified vertex. The entire vertex is supplied so that
@@ -107,12 +108,11 @@ struct Edge
 
 
 	#ifdef DEBUG
-		~Edge()
+		~EdgeWithNoOcclusion()
 		{
 			unset(vertex1);
 			unset(vertex2);
 		}
-
 	#endif
 	
 	private:
@@ -134,6 +134,66 @@ struct Edge
 				return a;
 		}
 };
+
+
+struct EdgeWithOcclusionDepthOnly: public EdgeWithNoOcclusion
+{
+	inline EdgeWithOcclusionDepthOnly(Vertex*v1, Vertex* v2)
+	:EdgeWithNoOcclusion(v1, v2)
+	{
+	}
+
+	void add_occluding_face(const Face*)
+	{
+		occlusion_depth++;
+	}
+
+	void remove_occluding_face(const Face*)
+	{
+		occlusion_depth = max(0, occlusion_depth-1);
+	}
+	
+	void set_occluders(const unordered_set<const Face*>&, int depth)
+	{
+		occlusion_depth = depth;
+	}
+};
+
+
+struct EdgeWithFullOcclusion: public EdgeWithNoOcclusion
+{
+	unordered_set<const Face*> occluding_faces;
+
+	inline EdgeWithFullOcclusion(Vertex*v1, Vertex* v2)
+	:EdgeWithNoOcclusion(v1, v2)
+	{
+	}
+
+	void add_occluding_face(const Face* f)
+	{
+		occluding_faces.insert(f);
+		occlusion_depth++;
+	}
+
+	void remove_occluding_face(const Face* f)
+	{
+		if(occluding_faces.erase(f))
+			occlusion_depth--;
+	}
+	
+	void set_occluders(unordered_set<const Face*>& faces, int depth)
+	{
+		occluding_faces = faces;
+		occlusion_depth = depth;
+	}
+};
+
+
+
+typedef EdgeWithOcclusionDepthOnly Edge;
+
+
+
 
 
 //Sort a pair of vertices using an arbitrary but stable method
@@ -348,7 +408,7 @@ struct Face
 	}
 };
 
-inline Edge::Edge(Vertex*v1, Vertex* v2)
+inline EdgeWithNoOcclusion::EdgeWithNoOcclusion(Vertex*v1, Vertex* v2)
 :vertex1(left(v1, v2)),
  vertex2(right(v1, v2))
 {
@@ -362,7 +422,7 @@ inline Edge::Edge(Vertex*v1, Vertex* v2)
 	v1cam2d = vertex1->cam2d;
 }
 
-inline double Edge::y_at_x_of(const Vertex& v_x, bool debug_no_checks) const
+inline double EdgeWithNoOcclusion::y_at_x_of(const Vertex& v_x, bool debug_no_checks) const
 {
 	//In regular code, this function should never be used to at vertex1
 	//In debugging tests, it might be.
@@ -398,12 +458,12 @@ inline double Edge::y_at_x_of(const Vertex& v_x, bool debug_no_checks) const
 	}
 }
 
-inline double Edge::y_at_x_of_unchecked(const Vertex& v_x) const
+inline double EdgeWithNoOcclusion::y_at_x_of_unchecked(const Vertex& v_x) const
 {
 	return y_at_x_of(v_x, true);
 }
 
-inline bool Edge::a_is_on_left(const Vertex* a, const Vertex* b) const
+inline bool EdgeWithNoOcclusion::a_is_on_left(const Vertex* a, const Vertex* b) const
 {
 	assert(a->cam2d[0] != b->cam2d[0]);
 	return a->cam2d[0] < b->cam2d[0];
@@ -870,36 +930,15 @@ tsortcrossing += T.reset();
 			//Therefore for safety, leave them out.
 			for(auto f: front.faces_above)
 				if(c.back_was_above)
-				{
-					//assert(back.occluding_faces.count(f) != 0);
-					F(if(back.occluding_faces.erase(f))
-						back.occlusion_depth--;
-					)
-
-					NOTF(back.occlusion_depth = max(0, back.occlusion_depth-1);)
-				}
+					back.remove_occluding_face(f);
 				else
-				{
-					F(assert(back.occluding_faces.count(f) == 0);)
-					F(back.occluding_faces.insert(f);)
-					back.occlusion_depth++;
-				}
+					back.add_occluding_face(f);
 
 			for(auto f: front.faces_below)
 				if(c.back_was_above)
-				{
-					F(assert(back.occluding_faces.count(f) == 0);)
-					F(back.occluding_faces.insert(f);)
-					back.occlusion_depth++;
-				}
+					back.add_occluding_face(f);
 				else
-				{
-					//assert(back.occluding_faces.count(f) != 0);
-					F(if(back.occluding_faces.erase(f))
-						back.occlusion_depth--;)
-
-					NOTF(back.occlusion_depth = max(0, back.occlusion_depth-1);)
-				}
+					back.remove_occluding_face(f);
 
 			//Record the previous vertex posision.
 			back.previous_2d = c.cam2d;
@@ -1142,8 +1181,9 @@ tinsertpos += T.reset();
 
 			ActiveEdge a;
 			a.edge = e;
-			F(a.occluding_faces = occluders;)
-			e->occlusion_depth = occlusion_depth;
+
+			e->set_occluders(occluders, occlusion_depth);
+
 			e->previous_3d=v.cam3d;
 			e->previous_2d=v.cam2d;
 
@@ -1173,10 +1213,9 @@ tinsertpos += T.reset();
 				if(f->plane_hides(e->vertex2->cam3d))
 				{
 					//The current active face really shouldn't be in the way already
-					F(assert(a.occluding_faces.count(f) == 0);)
+					F(assert(e->occluding_faces.count(f) == 0);)
 
-					e->occlusion_depth++;
-					F(a->occluding_faces.insert(f);)
+					e->add_occluding_face(f);
 				}
 			}
 
