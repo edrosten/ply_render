@@ -1,4 +1,5 @@
-//#define DEBUG
+#define DEBUG
+#define DEBUG
 //#undef DEBUG
 
 #ifdef DEBUG
@@ -12,8 +13,6 @@
 	#define  NDEBUG
 #endif
 
-#define  NDEBUG
-#define  NDEBUG
 #define F(X)
 #define NOTF(X) X
 
@@ -33,108 +32,17 @@
 #include <TooN/SymEigen.h>
 #include <tag/stdpp.h>
 
+
+#include "debug_helpers.h"
 #include "render.h"
 #include "pointer_set.h"
+#include "debug_array.h"
+#include "static_vector.h"
 
 using namespace CVD;
 using namespace std;
 using namespace tag;
 using namespace TooN;
-
-#ifdef DEBUG
-	template<class C> void unset(C& c)
-	{
-		c=C();
-	}
-	template<class C*> void unset(C& c)
-	{
-		c = reinterpret_cast<C>(0xbadc0ffee0ddf00d);
-	}
-
-	template<int I> void unset(Vector<I>& v)
-	{
-		for(int i=0; i < I; i++)
-			v[i] = -1.005360053e99;
-	}
-#endif
-
-
-#ifdef DEBUG
-template<class C, size_t Size> class Array: private array<C, Size>
-{
-	public:
-		using array<C, Size>::size;
-		using array<C, Size>::begin;
-		using array<C, Size>::end;
-		using array<C, Size>::value_type;
-
-		C& operator[](size_t i)
-		{
-			assert(i < Size);
-			return array<C, Size>::operator[](i);
-		}	
-
-		const C& operator[](size_t i) const
-		{
-			assert(i < Size);
-			return array<C, Size>::operator[](i);
-		}	
-};
-
-#else
-	template<class C, size_t Size> using Array = std::array<C, Size>;
-#endif
-
-template<class C, size_t Max> class static_vector
-{
-	private:
-		array<C, Max> data;
-		size_t num;	
-	public:
-		static_vector()
-		:num(0)
-		{}
-
-		static_vector(const static_vector&)=default;
-		static_vector& operator=(const static_vector&)=default;
-
-		void push_back(C c)
-		{	
-			if(num == data.size())
-				throw std::length_error("static_vector");
-			data[num++] = c;
-		}
-
-		size_t size() const
-		{
-			return num;
-		}
-
-		const C& operator[](size_t i) const
-		{
-			assert(i < num);
-			return data[i];
-		}
-
-		const C* begin() const
-		{
-			return data.begin();
-		}
-
-		const C* end() const
-		{
-			return data.begin() + num;
-		}
-
-		#ifdef DEBUG
-			~static_vector()
-			{
-				for(size_t i=0;i<Max; i++)
-					unset(data[i]);
-				num=0;
-			}
-		#endif
-};
 
 
 struct Vertex;
@@ -449,6 +357,8 @@ inline Edge::Edge(Vertex*v1, Vertex* v2)
 
 	gradient = Dy / Dx;
 
+	assert(Dx > 0);
+
 	v1cam2d = vertex1->cam2d;
 }
 
@@ -483,7 +393,6 @@ inline double Edge::y_at_x_of(const Vertex& v_x, bool debug_no_checks) const
 		double dx = x - v1cam2d[0];
 
 		assert(dx >= 0);
-		assert(Dx > 0);
 
 		return dx * gradient + v1cam2d[1];
 	}
