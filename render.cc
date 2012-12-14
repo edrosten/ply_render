@@ -494,7 +494,7 @@ struct Intersection
 };
 
 
-vector<Vertex> get_sorted_list_of_camera_vertices_without_edges(const SE3<>& E, const vector<Vector<3>>& model_vertices)
+vector<Vertex> get_vertices_without_edges(const SE3<>& E, const vector<Vector<3>>& model_vertices)
 {
 	const double x_delta=1e-6;
 
@@ -510,25 +510,6 @@ vector<Vertex> get_sorted_list_of_camera_vertices_without_edges(const SE3<>& E, 
 		vertices[i].index = i;
 	}
 	
-	//Sort the vertices left to right
-	sort(vertices.begin(), vertices.end(), 
-		[](const Vertex& v1, const Vertex& v2)
-		{
-			return v1.cam2d[0]  < v2.cam2d[0];
-		}
-	);
-
-	//Now, some vertices might share the same x coordinate. 
-	//Fix this, with an evil hack. Note that this deals
-	//with multiple vertices sharing the same x coordinate.
-	double x_prev = vertices[0].cam2d[0];
-	for(size_t i=1; i < vertices.size(); i++)
-	{
-		if(vertices[i].cam2d[0] == x_prev)
-			vertices[i].cam2d[0] = vertices[i-1].cam2d[0] + x_delta;
-		else
-			x_prev = vertices[i].cam2d[0];
-	}
 
 	return vertices;
 }
@@ -656,6 +637,29 @@ X("get_sorted_list_of_camera_vertices_without_edges");
 	for(auto& v:vertices)
 		index_to_vertex[v.index] = &v;
 
+	vector<Vertex*> ordered_vertices;
+	for(auto& v:vertices)
+		ordered_vertices.push_back(&v);
+
+	//Sort the vertices left to right
+	sort(ordered_vertices.begin(), ordered_vertices.end(), 
+		[](const Vertex* v1, const Vertex* v2)
+		{
+			return v1->cam2d[0]  < v2->cam2d[0];
+		}
+	);
+	
+	//Now, some vertices might share the same x coordinate. 
+	//Fix this, with an evil hack. Note that this deals
+	//with multiple vertices sharing the same x coordinate.
+	double x_prev = ordered_vertices[0]->cam2d[0];
+	for(size_t i=1; i < ordered_vertices.size(); i++)
+	{
+		if(ordered_vertices[i]->cam2d[0] == x_prev)
+			ordered_vertices[i]->cam2d[0] = ordered_vertices[i-1]->cam2d[0] + x_delta;
+		else
+			x_prev = vertices[i]->cam2d[0];
+	}
 	
 	vector<Edge> edges;
 	vector<Face> faces(m.get_edges().size());
@@ -759,7 +763,7 @@ X("compute_normals");
 				e.should_render = false;
 		}
 
-
+		e.should_render=true;
 	}
 
 
@@ -799,8 +803,10 @@ double tinsertactive=0;
 	PointerSet<Face> faces_active(faces);
 	unordered_set<const Face*> faces_at_vertex;
 
-	for(const auto& v: vertices)
+	for(const auto& vv: ordered_vertices)
 	{
+		
+		const Vertex& v = *vv;
 
 		#ifdef DEBUG
 			auto debug_order_at_v = [&](const ActiveEdge& e1, const ActiveEdge& e2)
