@@ -65,12 +65,13 @@ struct EdgeWithNoOcclusion
 	//This is purely static information which never changes
 	Vertex *vertex1, *vertex2;
 	static_vector<Face*, 2> faces;
-
 	
-	//This is semi-tynamic information which changes each time
+	
+	//This is semi-dynamic information which changes each time
 	//a new transformation is used
 	double gradient;
 	Vector<2> v1cam2d;
+	bool should_render;
 
 	//This is dynamic information which is in use
 	//only when the edge is active. It ought to belong to
@@ -730,6 +731,38 @@ X("sort_right_edges");
 
 X("compute_normals");
 
+
+	//Compute whether we should render or not.
+	//FIXME make this nicer.
+
+	for(auto& e:edges)
+	{
+		if(e.faces.size() != 2)
+			e.should_render = true;
+		else
+		{
+			Vector<3> n1 = e.faces[0]->cam_plane.slice<0,3>();
+			Vector<3> n2 = e.faces[1]->cam_plane.slice<0,3>();
+			
+			//The normal sign is arbitrary, so make sure they point
+			//in more or less the same direction.
+			if(n1 * n2 < 0)
+				n2 = -n2;
+			
+			Vector<3> a_ray = e.vertex1->cam3d;
+
+
+				
+			if( (n1 * a_ray < 0) != (n2 * a_ray < 0))
+				e.should_render = true;
+			else
+				e.should_render = false;
+		}
+
+
+	}
+
+
 	//At this point we have a sorted list of vertices (left to right), 
 	//and faces, vertices and edges with all cross referencing
 	//information.
@@ -909,7 +942,7 @@ tsortcrossing += T.reset();
 			//If the previous occlusion depth was zero, emit an edge from the previous point
 			//to the current point. Note that this will generate a superfluous edge pair if
 			//the front edge has no faces!
-			if(back.occlusion_depth==0)
+			if(back.occlusion_depth==0 && back.should_render)
 			{
 				EdgeSegment e;
 				e.a3d = back.previous_3d;
@@ -993,14 +1026,17 @@ tproccrossing+=T.reset();
 		for(auto e = first_incoming_edge; e < active_edges.end(); e++)
 			if(edge_terminates_here(*e) && e->edge->occlusion_depth==0)
 			{
-				EdgeSegment s;
-				s.a3d = e->edge->previous_3d;
-				s.a2d = e->edge->previous_2d;
+				if(e->edge->should_render)
+				{
+					EdgeSegment s;
+					s.a3d = e->edge->previous_3d;
+					s.a2d = e->edge->previous_2d;
 
-				s.b3d = v.cam3d;
-				s.b2d = v.cam2d;
-				
-				output.push_back(s);
+					s.b3d = v.cam3d;
+					s.b2d = v.cam2d;
+					
+					output.push_back(s);
+				}
 			}
 			else if(e->y > vertex_y)
 				break;
