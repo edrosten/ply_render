@@ -514,8 +514,79 @@ vector<Vertex> get_vertices_without_edges(const SE3<>& E, const vector<Vector<3>
 	return vertices;
 }
 
+class ModelInformation
+{
+	private:
+		vector<Vertex> vertices;
+		vector<Edge> edges;
+		vector<Face> faces;
 
-vector<EdgeSegment> render(const SE3<>& E, const Model& m)
+
+
+	public:
+		Renderer(const Model& m);
+		
+		void render(const SE3<>& E);
+}
+
+Renderer::Renderer(const Model& m)
+{
+	//Extract all the projection independent information.
+	//We could defer filling in the 3D coordinates too.
+	vertices.resize(m.vertices.size());
+	for(size_t i=0; i < vertices.size(); i++)
+		vertices[i].world = m.vertices[i];
+
+	faces.resize(m.get_edges().size());
+
+	//Get all the unique edges and faces
+	//Note that the model is very badly named.
+	//get_edges(), actually gets the list of *faces*
+	//~yay~
+	map<pair<const Vertex*, const Vertex*>, Edge> s_edges;
+	
+	for(unsigned int i=0; i < m.get_edges().size(); i++)
+	{
+		
+		Face* face = &faces[i];
+		//Fill in the list of vertices which each face has
+		for(unsigned int j=0; j < m.get_edges()[i].size(); j++)
+			face->vertices[j] = &vertices[m.get_edges()[i][j]];
+
+
+		//Now get the closed loop of edges
+		for(unsigned int j=0; j < m.get_edges()[i].size(); j++)
+		{
+
+			Vertex* v1 = face->vertices[j];
+			Vertex* v2 = face->vertices[(j+1) % face->vertices.size()];
+
+			decltype(s_edges)::iterator edge;
+			bool b;
+
+			//Find the edge/insert it if it does not exist.
+			tie(edge, b) = s_edges.insert(make_pair(order(v1, v2), Edge(v1, v2)));
+			
+
+			//Either way, associate the face with the edge
+			edge->second.faces.push_back(face);
+
+			//Also associate the face with the vertex.
+			v1->faces.insert(face);
+			v2->faces.insert(face);
+		}
+	}
+	
+	//Pack the edges into a std::vector
+	for(auto& e:s_edges)
+		edges.push_back(e.second);
+
+
+
+}
+
+
+vector<EdgeSegment> Render::render(const SE3<>& E, const Model& m)
 {
 
 	/* Here's how it works:
@@ -630,13 +701,6 @@ T.reset();
 	vector<Vertex> vertices = get_sorted_list_of_camera_vertices_without_edges(E, m.vertices);
 X("get_sorted_list_of_camera_vertices_without_edges");
 
-	//The vertices are now shuffled, so in order to refer to a particular vertex, 
-	//we need a mapping:
-	vector<Vertex*> index_to_vertex(vertices.size());
-
-	for(auto& v:vertices)
-		index_to_vertex[v.index] = &v;
-
 	vector<Vertex*> ordered_vertices;
 	for(auto& v:vertices)
 		ordered_vertices.push_back(&v);
@@ -676,7 +740,7 @@ X("get_sorted_list_of_camera_vertices_without_edges");
 			Face* face = &faces[i];
 			//Fill in the list of vertices which each face has
 			for(unsigned int j=0; j < m.get_edges()[i].size(); j++)
-				face->vertices[j] = index_to_vertex[m.get_edges()[i][j]];
+				face->vertices[j] = &vertices[m.get_edges()[i][j]];
 
 
 			//Now get the closed loop of edges
