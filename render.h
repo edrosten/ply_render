@@ -22,7 +22,7 @@ class Renderer
 
 };
 
-std::unique_ptr<Renderer> make_renderer_from_model(const Model& m)
+std::unique_ptr<Renderer> make_renderer_from_model(const Model& m);
 
 std::vector<EdgeSegment> render(const TooN::SE3<>& E, const Model& m);
 
