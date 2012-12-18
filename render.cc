@@ -743,12 +743,21 @@ X("compute_normals");
 		{
 			Vector<3> n1 = e.faces[0]->cam_plane.slice<0,3>();
 			Vector<3> n2 = e.faces[1]->cam_plane.slice<0,3>();
-			
-			//The normal sign is arbitrary, so make sure they point
-			//in more or less the same direction.
-			if(n1 * n2 < 0)
+
+			//The normal sign is arbitrary, and the angle between planes could be
+			//very sharp or very shallow.
+			double max[2] = {0.0,0.0};
+			for(int j=0; j<2; ++j) {
+				for(unsigned int i=0; i<e.faces[(j+1)%2]->vertices.size(); ++i) {
+					const double d = e.faces[j]->cam_plane *
+						unproject(e.faces[(j+1)%2]->vertices[i]->cam3d);
+					if(fabs(max[j]) <= fabs(d))
+						max[j] = d;
+				}
+			}
+			if(max[0] * max[1] < 0)
 				n2 = -n2;
-			
+
 			Vector<3> a_ray = e.vertex1->cam3d;
 
 
