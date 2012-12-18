@@ -505,7 +505,7 @@ vector<Vertex> get_vertices_without_edges(const SE3<>& E, const vector<Vector<3>
 	return vertices;
 }
 
-class ModelInformation
+class ModelInformation: public Renderer
 {
 	private:
 		vector<Vertex> vertices;
@@ -517,9 +517,8 @@ class ModelInformation
 	public:
 		ModelInformation(const Model& m);
 
-		void set_vertex_world_coordinates(const vector<Vector<3>>& vertices);
-		
-		vector<EdgeSegment> render(const SE3<>& E);
+		void set_vertex_world_coordinates(const vector<Vector<3>>& vertices) override;
+		vector<EdgeSegment> render(const SE3<>& E) override;
 };
 
 void ModelInformation::set_vertex_world_coordinates(const vector<Vector<3>>& v)
@@ -1348,3 +1347,9 @@ vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 	return mod.render(E);
 
 }
+
+
+
+
+Renderer::~Renderer()
+{}

@@ -10,9 +10,9 @@ using namespace TooN;
 using namespace CVD;
 using namespace std;
 
-int main()
+int main(int, char** argv)
 {
-	Model m("turbine2.ply");
+	Model m(argv[1]);
 	
 	ImageRef size(640,480);
 	Camera::Linear cam;
