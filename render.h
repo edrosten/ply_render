@@ -1,8 +1,11 @@
 #ifndef RENDER_INCLUDE_RENDER_H
 #define RENDER_INCLUDE_RENDER_H
 
-#include <TooN/se3.h>
+#include <memory>
 #include <vector>
+#include <TooN/se3.h>
+#include "model_loader.h"
+
 
 struct EdgeSegment
 {
@@ -18,6 +21,8 @@ class Renderer
 		virtual ~Renderer();
 
 };
+
+std::unique_ptr<Renderer> make_renderer_from_model(const Model& m)
 
 std::vector<EdgeSegment> render(const TooN::SE3<>& E, const Model& m);
 
