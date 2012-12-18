@@ -276,7 +276,6 @@ struct Face
 	static_vector<Edge*, 3> edges;
 	Vector<4> plane;
 	Vector<4> cam_plane;
-	double max_y;
 
 	void compute_plane()
 	{
@@ -342,13 +341,6 @@ struct Face
 		// T = inv(E^t)
 		cam_plane = plane * E.inverse(); 
 
-		//Find the lowest point of the face
-		max_y = (*max_element(vertices.begin(), vertices.end(),
-		            [](const Vertex<Edge>* v1, const Vertex<Edge>* v2)
-					{
-						return v1->cam2d[1] < v2->cam2d[1];
-					}))->cam2d[1];
-		
 	}
 
 	double depth(const Vector<2>& cam2d) const
