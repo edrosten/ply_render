@@ -62,7 +62,15 @@ struct Face;
 //a count of the occluders.
 struct EdgeWithNoOcclusion
 {
+	inline EdgeWithNoOcclusion(Vertex*v1, Vertex* v2)
+	:vertex1(v1),vertex2(v2)
+	{
+	}
+
+	void compute_transformation_specific_information();
+
 	//This is purely static information which never changes
+	//Well, the order of the vertices is updated.
 	Vertex *vertex1, *vertex2;
 	static_vector<Face*, 2> faces;
 	
@@ -86,8 +94,6 @@ struct EdgeWithNoOcclusion
 	Vector<3> previous_3d;
 	Vector<2> previous_2d;
 	static_vector<Face*, 2> faces_above, faces_below;
-
-	inline EdgeWithNoOcclusion(Vertex*v1, Vertex* v2);
 
 	//y as a function of x, where x is the x position
 	//of a specified vertex. The entire vertex is supplied so that
@@ -117,23 +123,6 @@ struct EdgeWithNoOcclusion
 	#endif
 	
 	private:
-		inline bool a_is_on_left(const Vertex* a, const Vertex* b) const;
-
-		Vertex* left(Vertex* a, Vertex* b) const
-		{
-			if(a_is_on_left(a, b))
-				return a;
-			else
-				return b;
-		}
-
-		Vertex* right(Vertex* a, Vertex* b) const
-		{
-			if(a_is_on_left(a, b))
-				return b;
-			else
-				return a;
-		}
 };
 
 
@@ -226,6 +215,7 @@ struct Vertex
 
 	unordered_set<const Face*> faces;
 
+
 	void sort()
 	{
 		std::sort(right_edges.begin(), right_edges.end(), 
@@ -288,9 +278,8 @@ struct Face
 	Vector<4> cam_plane;
 	double max_y;
 
-	void compute_data(const SE3<>& E)
+	void compute_plane()
 	{
-
 		//In the current implementation (above)
 		//we only have triangles, so we could comput the normal as the
 		//cross product of the vertices. However, computing the covariance about
@@ -321,6 +310,13 @@ struct Face
 		plane.slice<0,3>() = eig.get_evectors()[0];
 		plane[3] = -vertices[0]->world * eig.get_evectors()[0];
 		
+
+
+	}
+	
+	void compute_camera_plane(const SE3<>& E)
+	{
+
 		//The camera plane goes by the inverse because
 		//
 		// A plane is defined (in homogeneous coordinates) as x.p = 0
@@ -409,10 +405,13 @@ struct Face
 	}
 };
 
-inline EdgeWithNoOcclusion::EdgeWithNoOcclusion(Vertex*v1, Vertex* v2)
-:vertex1(left(v1, v2)),
- vertex2(right(v1, v2))
+
+inline void EdgeWithNoOcclusion::compute_transformation_specific_information()
 {
+	//Sort the two vertices left to right
+	if(vertex2->cam2d[0] < vertex1->cam2d[0])
+		swap(vertex1, vertex2);
+
 	double Dy = vertex2->cam2d[1]-vertex1->cam2d[1];
 	double Dx = vertex2->cam2d[0]-vertex1->cam2d[0];
 
@@ -464,13 +463,6 @@ inline double EdgeWithNoOcclusion::y_at_x_of_unchecked(const Vertex& v_x) const
 	return y_at_x_of(v_x, true);
 }
 
-inline bool EdgeWithNoOcclusion::a_is_on_left(const Vertex* a, const Vertex* b) const
-{
-	assert(a->cam2d[0] != b->cam2d[0]);
-	return a->cam2d[0] < b->cam2d[0];
-}
-
-
 
 //Apparently it's faster to have y in a special struct, rather than putting
 //it in Edge and have active_edges just be an array of Edge*. Perhaps this is
@@ -496,7 +488,6 @@ struct Intersection
 
 vector<Vertex> get_vertices_without_edges(const SE3<>& E, const vector<Vector<3>>& model_vertices)
 {
-	const double x_delta=1e-6;
 
 	//Rotate and project model into camera coordinates.
 	//From now on, we will only work with camera centred
@@ -524,18 +515,33 @@ class ModelInformation
 
 
 	public:
-		Renderer(const Model& m);
+		ModelInformation(const Model& m);
+
+		void set_vertex_world_coordinates(const vector<Vector<3>>& vertices);
 		
-		void render(const SE3<>& E);
+		vector<EdgeSegment> render(const SE3<>& E);
+};
+
+void ModelInformation::set_vertex_world_coordinates(const vector<Vector<3>>& v)
+{
+	//Extract and comute all the projection independent information.
+	if(v.size() != vertices.size())
+		throw std::logic_error("List of new vertives has the wrong size");
+
+	for(size_t i=0; i < vertices.size(); i++)
+		vertices[i].world = v[i];
+
+	
+	//The plane normals now need updating.
+	for(auto& f:faces)
+		f.compute_plane();
 }
 
-Renderer::Renderer(const Model& m)
+
+ModelInformation::ModelInformation(const Model& m)
 {
-	//Extract all the projection independent information.
-	//We could defer filling in the 3D coordinates too.
+	//Extract all the projection and shape independent information.
 	vertices.resize(m.vertices.size());
-	for(size_t i=0; i < vertices.size(); i++)
-		vertices[i].world = m.vertices[i];
 
 	faces.resize(m.get_edges().size());
 
@@ -581,12 +587,23 @@ Renderer::Renderer(const Model& m)
 	for(auto& e:s_edges)
 		edges.push_back(e.second);
 
-
-
+	//Now go and propagate the edge information to the faces and vertices
+	for(auto& edge: edges)
+	{
+		for(unsigned int i=0; i < edge.faces.size(); i++)
+			edge.faces[i]->edges.push_back(&edge);
+	}	
+	
+	set_vertex_world_coordinates(m.vertices);
 }
 
 
-vector<EdgeSegment> Render::render(const SE3<>& E, const Model& m)
+
+
+
+
+
+vector<EdgeSegment> ModelInformation::render(const SE3<>& E)
 {
 
 	/* Here's how it works:
@@ -698,14 +715,44 @@ cvd_timer U;
 
 #define X(Y) cerr << Y << " = " << T.reset() * 1000 << " ms" << endl
 T.reset();
-	vector<Vertex> vertices = get_sorted_list_of_camera_vertices_without_edges(E, m.vertices);
-X("get_sorted_list_of_camera_vertices_without_edges");
 
+	//Fill in all the transformation specific information
+	for(auto& v:vertices)
+	{
+		v.cam3d = E * v.world;
+		v.cam2d = project(v.cam3d);
+
+		v.left_edges.clear();
+		v.right_edges.clear();
+	}
+X("transform_vertices");
+
+	//Now go and propagate the edge information to the faces and vertices
+	for(auto& edge: edges)
+	{
+		edge.compute_transformation_specific_information();
+		//vertex1 is to the left of vertex2
+		edge.vertex1->right_edges.push_back(&edge);
+		edge.vertex2->left_edges.push_back(&edge);
+	}
+X("transform_edges");
+	
+	//Now do the final sorting on the right hand edges of each vertex.
+	for(auto& v:vertices)
+		v.sort();
+X("sort_right_edges");
+
+	//Compute the face normals
+	for(auto& f:faces)
+		f.compute_camera_plane(E);
+X("transform_faces");
+
+
+	//Sort the vertices left to right
 	vector<Vertex*> ordered_vertices;
 	for(auto& v:vertices)
 		ordered_vertices.push_back(&v);
 
-	//Sort the vertices left to right
 	sort(ordered_vertices.begin(), ordered_vertices.end(), 
 		[](const Vertex* v1, const Vertex* v2)
 		{
@@ -713,6 +760,7 @@ X("get_sorted_list_of_camera_vertices_without_edges");
 		}
 	);
 	
+	const double x_delta=1e-6;
 	//Now, some vertices might share the same x coordinate. 
 	//Fix this, with an evil hack. Note that this deals
 	//with multiple vertices sharing the same x coordinate.
@@ -722,80 +770,13 @@ X("get_sorted_list_of_camera_vertices_without_edges");
 		if(ordered_vertices[i]->cam2d[0] == x_prev)
 			ordered_vertices[i]->cam2d[0] = ordered_vertices[i-1]->cam2d[0] + x_delta;
 		else
-			x_prev = vertices[i]->cam2d[0];
+			x_prev = ordered_vertices[i]->cam2d[0];
 	}
 	
-	vector<Edge> edges;
-	vector<Face> faces(m.get_edges().size());
-	{
-		//Get all the unique edges and faces
-		//Note that the model is very badly named.
-		//get_edges(), actually gets the list of *faces*
-		//~yay~
-		map<pair<const Vertex*, const Vertex*>, Edge> s_edges;
-		
-		for(unsigned int i=0; i < m.get_edges().size(); i++)
-		{
-			
-			Face* face = &faces[i];
-			//Fill in the list of vertices which each face has
-			for(unsigned int j=0; j < m.get_edges()[i].size(); j++)
-				face->vertices[j] = &vertices[m.get_edges()[i][j]];
-
-
-			//Now get the closed loop of edges
-			for(unsigned int j=0; j < m.get_edges()[i].size(); j++)
-			{
-
-				Vertex* v1 = face->vertices[j];
-				Vertex* v2 = face->vertices[(j+1) % face->vertices.size()];
-
-				decltype(s_edges)::iterator edge;
-				bool b;
-
-				//Find the edge/insert it if it does not exist.
-				tie(edge, b) = s_edges.insert(make_pair(order(v1, v2), Edge(v1, v2)));
-				
-
-				//Either way, associate the face with the edge
-				edge->second.faces.push_back(face);
-
-				//Also associate the face with the vertex.
-				v1->faces.insert(face);
-				v2->faces.insert(face);
-			}
-		}
-		
-		//Pack the edges into a std::vector
-		for(auto& e:s_edges)
-			edges.push_back(e.second);
-	}
-X("find_edges");
-
-	//Now go and propagate the edge information to the faces and vertices
-	for(auto& edge: edges)
-	{
-		for(unsigned int i=0; i < edge.faces.size(); i++)
-			edge.faces[i]->edges.push_back(&edge);
-		
-		
-		//vertex1 is to the left of vertex2
-		edge.vertex1->right_edges.push_back(&edge);
-		edge.vertex2->left_edges.push_back(&edge);
-	}
 
 X("populate_faces");
 
-	//Now do the final sorting on the right hand edges of each vertex.
-	for(auto& v:vertices)
-		v.sort();
 
-X("sort_right_edges");
-
-	
-	//Compute the face normals
-	for(auto& f:faces)
-		f.compute_data(E);
 
 X("compute_normals");
 
@@ -1358,4 +1339,12 @@ P(tinsertactive);
 P(U.reset());
 
 	return output;
+}
+
+
+vector<EdgeSegment> render(const SE3<>& E, const Model& m)
+{
+	ModelInformation mod(m);
+	return mod.render(E);
+
 }
