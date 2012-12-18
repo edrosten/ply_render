@@ -107,9 +107,13 @@ struct FullOcclusion
 //of y_at_x_of() is the slowest part. So, we put a lot of effort into making that
 //quicker by caching values.
 //
-//This structure defers adding and removing occluders to a derives class
+//This structure defers adding and removing occluders to a base class
 //in order to allow us to keep track of every occluding face or merely
 //a count of the occluders.
+//
+//Also, the precise container format for holidng pointers to faces
+//affects performance measurably. So, we parameterize that to allow
+//std::vector (general) or static_vector (fast).
 template<template<class> class FaceContainer>
 struct Edge: public OcclusionDepthOnly<Edge<FaceContainer>>
 {
@@ -1336,7 +1340,7 @@ Renderer::~Renderer()
 {}
 
 
-unique_ptr<Renderer> make_from_model(const Model& m)
+unique_ptr<Renderer> make_renderer_from_model(const Model& m)
 {
 	unique_ptr<Renderer> r;
 
@@ -1351,5 +1355,5 @@ unique_ptr<Renderer> make_from_model(const Model& m)
 
 vector<EdgeSegment> render(const SE3<>& E, const Model& m)
 {
-	return make_from_model(m)->render(E);
+	return make_renderer_from_model(m)->render(E);
 }
