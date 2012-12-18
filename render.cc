@@ -794,7 +794,7 @@ X("sort_vertices");
 				e.should_render = false;
 		}
 
-		e.should_render=true;
+		//e.should_render=true;
 	}
 
 X("compute_normals");
