@@ -13,6 +13,7 @@
 	#define  NDEBUG
 #endif
 
+#define  NDEBUG
 #define F(X) 
 
 #include <cassert>
@@ -751,11 +752,10 @@ X("transform_faces");
 	}
 	
 
-X("populate_faces");
+X("sort_vertices");
 
 
 
-X("compute_normals");
 
 
 	//Compute whether we should render or not.
@@ -797,6 +797,7 @@ X("compute_normals");
 		e.should_render=true;
 	}
 
+X("compute_normals");
 
 	//At this point we have a sorted list of vertices (left to right), 
 	//and faces, vertices and edges with all cross referencing
