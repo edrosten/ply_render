@@ -47,6 +47,53 @@ using namespace TooN;
 struct Vertex;
 struct Face;
 
+struct OcclusionDepthOnly
+{
+	int occlusion_depth;
+
+
+	void add_occluding_face(const Face*)
+	{
+		occlusion_depth++;
+	}
+
+	void remove_occluding_face(const Face*)
+	{
+		occlusion_depth = max(0, occlusion_depth-1);
+	}
+	
+	void set_occluders(const unordered_set<const Face*>&, int depth)
+	{
+		occlusion_depth = depth;
+	}
+};
+
+
+struct FullOcclusion
+{
+	unordered_set<const Face*> occluding_faces;
+	int occlusion_depth;
+
+	void add_occluding_face(const Face* f)
+	{
+		occluding_faces.insert(f);
+		occlusion_depth++;
+	}
+
+	void remove_occluding_face(const Face* f)
+	{
+		if(occluding_faces.erase(f))
+			occlusion_depth--;
+	}
+	
+	void set_occluders(unordered_set<const Face*>& faces, int depth)
+	{
+		occluding_faces = faces;
+		occlusion_depth = depth;
+	}
+};
+
+
 
 //Edge structure: an edge consists of two vertices
 //and a list of faces.
@@ -60,9 +107,9 @@ struct Face;
 //This structure defers adding and removing occluders to a derives class
 //in order to allow us to keep track of every occluding face or merely
 //a count of the occluders.
-struct EdgeWithNoOcclusion
+struct Edge: public OcclusionDepthOnly
 {
-	inline EdgeWithNoOcclusion(Vertex*v1, Vertex* v2)
+	inline Edge(Vertex*v1, Vertex* v2)
 	:vertex1(v1),vertex2(v2)
 	{
 	}
@@ -90,7 +137,6 @@ struct EdgeWithNoOcclusion
 	//by a factor of 1.3.
 	//
 	//Sad that the cleaner design is slower, but oh well.
-	int occlusion_depth;
 	Vector<3> previous_3d;
 	Vector<2> previous_2d;
 	static_vector<Face*, 2> faces_above, faces_below;
@@ -115,7 +161,7 @@ struct EdgeWithNoOcclusion
 
 
 	#ifdef DEBUG
-		~EdgeWithNoOcclusion()
+		~Edge()
 		{
 			unset(vertex1);
 			unset(vertex2);
@@ -124,63 +170,6 @@ struct EdgeWithNoOcclusion
 	
 	private:
 };
-
-
-struct EdgeWithOcclusionDepthOnly: public EdgeWithNoOcclusion
-{
-	inline EdgeWithOcclusionDepthOnly(Vertex*v1, Vertex* v2)
-	:EdgeWithNoOcclusion(v1, v2)
-	{
-	}
-
-	void add_occluding_face(const Face*)
-	{
-		occlusion_depth++;
-	}
-
-	void remove_occluding_face(const Face*)
-	{
-		occlusion_depth = max(0, occlusion_depth-1);
-	}
-	
-	void set_occluders(const unordered_set<const Face*>&, int depth)
-	{
-		occlusion_depth = depth;
-	}
-};
-
-
-struct EdgeWithFullOcclusion: public EdgeWithNoOcclusion
-{
-	unordered_set<const Face*> occluding_faces;
-
-	inline EdgeWithFullOcclusion(Vertex*v1, Vertex* v2)
-	:EdgeWithNoOcclusion(v1, v2)
-	{
-	}
-
-	void add_occluding_face(const Face* f)
-	{
-		occluding_faces.insert(f);
-		occlusion_depth++;
-	}
-
-	void remove_occluding_face(const Face* f)
-	{
-		if(occluding_faces.erase(f))
-			occlusion_depth--;
-	}
-	
-	void set_occluders(unordered_set<const Face*>& faces, int depth)
-	{
-		occluding_faces = faces;
-		occlusion_depth = depth;
-	}
-};
-
-
-
-typedef EdgeWithOcclusionDepthOnly Edge;
 
 
 
@@ -406,7 +395,7 @@ struct Face
 };
 
 
-inline void EdgeWithNoOcclusion::compute_transformation_specific_information()
+inline void Edge::compute_transformation_specific_information()
 {
 	//Sort the two vertices left to right
 	if(vertex2->cam2d[0] < vertex1->cam2d[0])
@@ -422,7 +411,7 @@ inline void EdgeWithNoOcclusion::compute_transformation_specific_information()
 	v1cam2d = vertex1->cam2d;
 }
 
-inline double EdgeWithNoOcclusion::y_at_x_of(const Vertex& v_x, bool debug_no_checks) const
+inline double Edge::y_at_x_of(const Vertex& v_x, bool debug_no_checks) const
 {
 	//In regular code, this function should never be used to at vertex1
 	//In debugging tests, it might be.
@@ -458,7 +447,7 @@ inline double EdgeWithNoOcclusion::y_at_x_of(const Vertex& v_x, bool debug_no_ch
 	}
 }
 
-inline double EdgeWithNoOcclusion::y_at_x_of_unchecked(const Vertex& v_x) const
+inline double Edge::y_at_x_of_unchecked(const Vertex& v_x) const
 {
 	return y_at_x_of(v_x, true);
 }
