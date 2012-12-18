@@ -291,7 +291,8 @@ struct Face
 		//point.
 		//
 		//It incurs only a linear cost at model build time.
-		Matrix<3> M = Zeros;
+		
+		/*Matrix<3> M = Zeros;
 
 		for(unsigned int i=1; i < vertices.size(); i++)
 		{
@@ -300,15 +301,30 @@ struct Face
 		}
 		
 		SymEigen<3> eig(M);
+		*/
 		
+		//An alternative method is to cycle through the edges doing cross
+		//products between successive pairs. This will maintain absolute direction
+		//if the vertex order matters.
+		Vector<3> cross_sum = Zeros;
+
+		for(unsigned int i=1; i < edges.size()-1; i++)
+		{
+			Vector<3> v1 = vertices[  i]->world - vertices[i-1]->world;
+			Vector<3> v2 = vertices[i+1]->world - vertices[  i]->world;
+			cross_sum += v1 ^ v2;
+		}
+	
+
+
 		//points on a plane p, obey (p - p0) . n = 0
 		//
 		//or, in homogenous coordinates
 		//
 		// (px px pz ps) * ( n1 n2 n3  -p0.n) = 0
 		//
-		plane.slice<0,3>() = eig.get_evectors()[0];
-		plane[3] = -vertices[0]->world * eig.get_evectors()[0];
+		plane.slice<0,3>() = cross_sum;
+		plane[3] = -vertices[0]->world * cross_sum;
 		
 
 
@@ -794,7 +810,7 @@ X("sort_vertices");
 				e.should_render = false;
 		}
 
-		//e.should_render=true;
+		e.should_render=true;
 	}
 
 X("compute_normals");
