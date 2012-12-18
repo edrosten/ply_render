@@ -24,6 +24,7 @@
 #include <map>
 #include <set>
 #include <fstream>
+#include <memory>
 #include <unordered_map>
 #include <unordered_set>
 #include <iomanip>
@@ -44,8 +45,57 @@ using namespace tag;
 using namespace TooN;
 
 
-struct Vertex;
-struct Face;
+template<class C> struct Vertex;
+template<class C> struct Face;
+
+template<class Edge>
+struct OcclusionDepthOnly
+{
+	int occlusion_depth;
+
+
+	void add_occluding_face(const Face<Edge>*)
+	{
+		occlusion_depth++;
+	}
+
+	void remove_occluding_face(const Face<Edge>*)
+	{
+		occlusion_depth = max(0, occlusion_depth-1);
+	}
+	
+	void set_occluders(const unordered_set<const Face<Edge>*>&, int depth)
+	{
+		occlusion_depth = depth;
+	}
+};
+
+
+template<class Edge>
+struct FullOcclusion
+{
+	unordered_set<const Face<Edge>*> occluding_faces;
+	int occlusion_depth;
+
+	void add_occluding_face(const Face<Edge>* f)
+	{
+		occluding_faces.insert(f);
+		occlusion_depth++;
+	}
+
+	void remove_occluding_face(const Face<Edge>* f)
+	{
+		if(occluding_faces.erase(f))
+			occlusion_depth--;
+	}
+	
+	void set_occluders(unordered_set<const Face<Edge>*>& faces, int depth)
+	{
+		occluding_faces = faces;
+		occlusion_depth = depth;
+	}
+};
+
 
 
 //Edge structure: an edge consists of two vertices
@@ -57,14 +107,27 @@ struct Face;
 //of y_at_x_of() is the slowest part. So, we put a lot of effort into making that
 //quicker by caching values.
 //
-//This structure defers adding and removing occluders to a derives class
+//This structure defers adding and removing occluders to a base class
 //in order to allow us to keep track of every occluding face or merely
 //a count of the occluders.
-struct EdgeWithNoOcclusion
+//
+//Also, the precise container format for holidng pointers to faces
+//affects performance measurably. So, we parameterize that to allow
+//std::vector (general) or static_vector (fast).
+template<template<class> class FaceContainer>
+struct Edge: public OcclusionDepthOnly<Edge<FaceContainer>>
 {
+	inline Edge(Vertex<Edge>*v1, Vertex<Edge>* v2)
+	:vertex1(v1),vertex2(v2)
+	{
+	}
+
+	void compute_transformation_specific_information();
+
 	//This is purely static information which never changes
-	Vertex *vertex1, *vertex2;
-	static_vector<Face*, 2> faces;
+	//Well, the order of the vertices is updated.
+	Vertex<Edge> *vertex1, *vertex2;
+	FaceContainer<Face<Edge>*> faces;
 	
 	
 	//This is semi-dynamic information which changes each time
@@ -82,12 +145,9 @@ struct EdgeWithNoOcclusion
 	//by a factor of 1.3.
 	//
 	//Sad that the cleaner design is slower, but oh well.
-	int occlusion_depth;
 	Vector<3> previous_3d;
 	Vector<2> previous_2d;
-	static_vector<Face*, 2> faces_above, faces_below;
-
-	inline EdgeWithNoOcclusion(Vertex*v1, Vertex* v2);
+	FaceContainer<Face<Edge>*> faces_above, faces_below;
 
 	//y as a function of x, where x is the x position
 	//of a specified vertex. The entire vertex is supplied so that
@@ -100,16 +160,16 @@ struct EdgeWithNoOcclusion
 	//2: the correct y value can be found efficiently by binary search.
 	//
 	//Additionally, it allows for some good sanity checks.
-	inline double y_at_x_of(const Vertex& v_x, bool debug_no_checks=false) const;
+	inline double y_at_x_of(const Vertex<Edge>& v_x, bool debug_no_checks=false) const;
 
 	//Special version with no error checking to allow use in
 	//std::is_sorted
-	inline double y_at_x_of_unchecked(const Vertex& v_x) const;
+	inline double y_at_x_of_unchecked(const Vertex<Edge>& v_x) const;
 
 
 
 	#ifdef DEBUG
-		~EdgeWithNoOcclusion()
+		~Edge()
 		{
 			unset(vertex1);
 			unset(vertex2);
@@ -117,88 +177,15 @@ struct EdgeWithNoOcclusion
 	#endif
 	
 	private:
-		inline bool a_is_on_left(const Vertex* a, const Vertex* b) const;
-
-		Vertex* left(Vertex* a, Vertex* b) const
-		{
-			if(a_is_on_left(a, b))
-				return a;
-			else
-				return b;
-		}
-
-		Vertex* right(Vertex* a, Vertex* b) const
-		{
-			if(a_is_on_left(a, b))
-				return b;
-			else
-				return a;
-		}
 };
-
-
-struct EdgeWithOcclusionDepthOnly: public EdgeWithNoOcclusion
-{
-	inline EdgeWithOcclusionDepthOnly(Vertex*v1, Vertex* v2)
-	:EdgeWithNoOcclusion(v1, v2)
-	{
-	}
-
-	void add_occluding_face(const Face*)
-	{
-		occlusion_depth++;
-	}
-
-	void remove_occluding_face(const Face*)
-	{
-		occlusion_depth = max(0, occlusion_depth-1);
-	}
-	
-	void set_occluders(const unordered_set<const Face*>&, int depth)
-	{
-		occlusion_depth = depth;
-	}
-};
-
-
-struct EdgeWithFullOcclusion: public EdgeWithNoOcclusion
-{
-	unordered_set<const Face*> occluding_faces;
-
-	inline EdgeWithFullOcclusion(Vertex*v1, Vertex* v2)
-	:EdgeWithNoOcclusion(v1, v2)
-	{
-	}
-
-	void add_occluding_face(const Face* f)
-	{
-		occluding_faces.insert(f);
-		occlusion_depth++;
-	}
-
-	void remove_occluding_face(const Face* f)
-	{
-		if(occluding_faces.erase(f))
-			occlusion_depth--;
-	}
-	
-	void set_occluders(unordered_set<const Face*>& faces, int depth)
-	{
-		occluding_faces = faces;
-		occlusion_depth = depth;
-	}
-};
-
-
-
-typedef EdgeWithOcclusionDepthOnly Edge;
 
 
 
 
 
 //Sort a pair of vertices using an arbitrary but stable method
-pair<const Vertex*, const Vertex*> order(const Vertex* a, const Vertex* b)
+template<class C>
+pair<const Vertex<C>*, const Vertex<C>*> order(const Vertex<C>* a, const Vertex<C>* b)
 {
 	if(a<b)
 		return make_pair(a, b);
@@ -208,7 +195,7 @@ pair<const Vertex*, const Vertex*> order(const Vertex* a, const Vertex* b)
 
 
 
-
+template<class Edge>
 struct Vertex
 {
 	Vector<3> world;
@@ -224,7 +211,8 @@ struct Vertex
 							   //bottom to minimize superfluous sorting at later points.
 							   //Top is smallest y
 
-	unordered_set<const Face*> faces;
+	unordered_set<const Face<Edge>*> faces;
+
 
 	void sort()
 	{
@@ -280,17 +268,17 @@ struct Vertex
 
 };
 
+template<class Edge>
 struct Face
 {
-	Array<Vertex*,3> vertices;
+	Array<Vertex<Edge>*,3> vertices;
 	static_vector<Edge*, 3> edges;
 	Vector<4> plane;
 	Vector<4> cam_plane;
 	double max_y;
 
-	void compute_data(const SE3<>& E)
+	void compute_plane()
 	{
-
 		//In the current implementation (above)
 		//we only have triangles, so we could comput the normal as the
 		//cross product of the vertices. However, computing the covariance about
@@ -321,6 +309,13 @@ struct Face
 		plane.slice<0,3>() = eig.get_evectors()[0];
 		plane[3] = -vertices[0]->world * eig.get_evectors()[0];
 		
+
+
+	}
+	
+	void compute_camera_plane(const SE3<>& E)
+	{
+
 		//The camera plane goes by the inverse because
 		//
 		// A plane is defined (in homogeneous coordinates) as x.p = 0
@@ -332,7 +327,7 @@ struct Face
 
 		//Find the lowest point of the face
 		max_y = (*max_element(vertices.begin(), vertices.end(),
-		            [](const Vertex* v1, const Vertex* v2)
+		            [](const Vertex<Edge>* v1, const Vertex<Edge>* v2)
 					{
 						return v1->cam2d[1] < v2->cam2d[1];
 					}))->cam2d[1];
@@ -409,10 +404,13 @@ struct Face
 	}
 };
 
-inline EdgeWithNoOcclusion::EdgeWithNoOcclusion(Vertex*v1, Vertex* v2)
-:vertex1(left(v1, v2)),
- vertex2(right(v1, v2))
+template<template<class>class FC>
+inline void Edge<FC>::compute_transformation_specific_information()
 {
+	//Sort the two vertices left to right
+	if(vertex2->cam2d[0] < vertex1->cam2d[0])
+		swap(vertex1, vertex2);
+
 	double Dy = vertex2->cam2d[1]-vertex1->cam2d[1];
 	double Dx = vertex2->cam2d[0]-vertex1->cam2d[0];
 
@@ -423,7 +421,8 @@ inline EdgeWithNoOcclusion::EdgeWithNoOcclusion(Vertex*v1, Vertex* v2)
 	v1cam2d = vertex1->cam2d;
 }
 
-inline double EdgeWithNoOcclusion::y_at_x_of(const Vertex& v_x, bool debug_no_checks) const
+template<template<class>class FC>
+inline double Edge<FC>::y_at_x_of(const Vertex<Edge>& v_x, bool debug_no_checks) const
 {
 	//In regular code, this function should never be used to at vertex1
 	//In debugging tests, it might be.
@@ -459,82 +458,129 @@ inline double EdgeWithNoOcclusion::y_at_x_of(const Vertex& v_x, bool debug_no_ch
 	}
 }
 
-inline double EdgeWithNoOcclusion::y_at_x_of_unchecked(const Vertex& v_x) const
+template<template<class>class FC>
+inline double Edge<FC>::y_at_x_of_unchecked(const Vertex<Edge>& v_x) const
 {
 	return y_at_x_of(v_x, true);
 }
 
-inline bool EdgeWithNoOcclusion::a_is_on_left(const Vertex* a, const Vertex* b) const
+
+template<template<class>class FaceContainer>
+class ModelInformation: public Renderer
 {
-	assert(a->cam2d[0] != b->cam2d[0]);
-	return a->cam2d[0] < b->cam2d[0];
+	typedef ::Edge<FaceContainer> Edge;
+	typedef ::Vertex<Edge> Vertex;
+	typedef ::Face<Edge> Face;
+
+	private:
+		vector<Vertex> vertices;
+		vector<Edge> edges;
+		vector<Face> faces;
+
+
+		struct Intersection
+		{
+			Vector<2> cam2d;
+			Vector<3> front_pos;
+			Vector<3> back_pos;
+				
+			Edge* front_edge, *back_edge;
+			bool back_was_above;
+		};
+
+
+
+	public:
+		ModelInformation(const Model& m);
+
+		void set_vertex_world_coordinates(const vector<Vector<3>>& vertices) override;
+		vector<EdgeSegment> render(const SE3<>& E) override;
+};
+
+template<template<class>class FaceContainer>
+void ModelInformation<FaceContainer>::set_vertex_world_coordinates(const vector<Vector<3>>& v)
+{
+	//Extract and comute all the projection independent information.
+	if(v.size() != vertices.size())
+		throw std::logic_error("List of new vertives has the wrong size");
+
+	for(size_t i=0; i < vertices.size(); i++)
+		vertices[i].world = v[i];
+
+	
+	//The plane normals now need updating.
+	for(auto& f:faces)
+		f.compute_plane();
 }
 
 
-
-//Apparently it's faster to have y in a special struct, rather than putting
-//it in Edge and have active_edges just be an array of Edge*. Perhaps this is
-//because it keeps the y's close which is important since there are many accesses
-//to this structure.
-struct ActiveEdge
+template<template<class>class FaceContainer>
+ModelInformation<FaceContainer>::ModelInformation(const Model& m)
 {
-	Edge* edge;
-	double y;
-};
+	//Extract all the projection and shape independent information.
+	vertices.resize(m.vertices.size());
 
+	faces.resize(m.get_edges().size());
 
-struct Intersection
-{
-	Vector<2> cam2d;
-	Vector<3> front_pos;
-	Vector<3> back_pos;
-		
-	Edge* front_edge, *back_edge;
-	bool back_was_above;
-};
-
-
-vector<Vertex> get_sorted_list_of_camera_vertices_without_edges(const SE3<>& E, const vector<Vector<3>>& model_vertices)
-{
-	const double x_delta=1e-6;
-
-	//Rotate and project model into camera coordinates.
-	//From now on, we will only work with camera centred
-	//coordinates.
-	vector<Vertex> vertices(model_vertices.size());
-	for(size_t i=0; i < vertices.size(); i++)
+	//Get all the unique edges and faces
+	//Note that the model is very badly named.
+	//get_edges(), actually gets the list of *faces*
+	//~yay~
+	map<pair<const Vertex*, const Vertex*>, Edge> s_edges;
+	
+	for(unsigned int i=0; i < m.get_edges().size(); i++)
 	{
-		vertices[i].world = model_vertices[i];
-		vertices[i].cam3d = E*model_vertices[i];
-		vertices[i].cam2d = project(vertices[i].cam3d);
-		vertices[i].index = i;
+		
+		Face* face = &faces[i];
+		//Fill in the list of vertices which each face has
+		for(unsigned int j=0; j < m.get_edges()[i].size(); j++)
+			face->vertices[j] = &vertices[m.get_edges()[i][j]];
+
+
+		//Now get the closed loop of edges
+		for(unsigned int j=0; j < m.get_edges()[i].size(); j++)
+		{
+
+			Vertex* v1 = face->vertices[j];
+			Vertex* v2 = face->vertices[(j+1) % face->vertices.size()];
+
+			typename decltype(s_edges)::iterator edge;
+			bool b;
+
+			//Find the edge/insert it if it does not exist.
+			tie(edge, b) = s_edges.insert(make_pair(order(v1, v2), Edge(v1, v2)));
+			
+
+			//Either way, associate the face with the edge
+			edge->second.faces.push_back(face);
+
+			//Also associate the face with the vertex.
+			v1->faces.insert(face);
+			v2->faces.insert(face);
+		}
 	}
 	
-	//Sort the vertices left to right
-	sort(vertices.begin(), vertices.end(), 
-		[](const Vertex& v1, const Vertex& v2)
-		{
-			return v1.cam2d[0]  < v2.cam2d[0];
-		}
-	);
+	//Pack the edges into a std::vector
+	for(auto& e:s_edges)
+		edges.push_back(e.second);
 
-	//Now, some vertices might share the same x coordinate. 
-	//Fix this, with an evil hack. Note that this deals
-	//with multiple vertices sharing the same x coordinate.
-	double x_prev = vertices[0].cam2d[0];
-	for(size_t i=1; i < vertices.size(); i++)
+	//Now go and propagate the edge information to the faces and vertices
+	for(auto& edge: edges)
 	{
-		if(vertices[i].cam2d[0] == x_prev)
-			vertices[i].cam2d[0] = vertices[i-1].cam2d[0] + x_delta;
-		else
-			x_prev = vertices[i].cam2d[0];
-	}
-
-	return vertices;
+		for(unsigned int i=0; i < edge.faces.size(); i++)
+			edge.faces[i]->edges.push_back(&edge);
+	}	
+	
+	set_vertex_world_coordinates(m.vertices);
 }
 
 
-vector<EdgeSegment> render(const SE3<>& E, const Model& m)
+
+
+
+
+template<template<class>class FC>
+vector<EdgeSegment> ModelInformation<FC>::render(const SE3<>& E)
 {
 
 	/* Here's how it works:
@@ -646,88 +692,68 @@ cvd_timer U;
 
 #define X(Y) cerr << Y << " = " << T.reset() * 1000 << " ms" << endl
 T.reset();
-	vector<Vertex> vertices = get_sorted_list_of_camera_vertices_without_edges(E, m.vertices);
-X("get_sorted_list_of_camera_vertices_without_edges");
 
-	//The vertices are now shuffled, so in order to refer to a particular vertex, 
-	//we need a mapping:
-	vector<Vertex*> index_to_vertex(vertices.size());
-
+	//Fill in all the transformation specific information
 	for(auto& v:vertices)
-		index_to_vertex[v.index] = &v;
-
-	
-	vector<Edge> edges;
-	vector<Face> faces(m.get_edges().size());
 	{
-		//Get all the unique edges and faces
-		//Note that the model is very badly named.
-		//get_edges(), actually gets the list of *faces*
-		//~yay~
-		map<pair<const Vertex*, const Vertex*>, Edge> s_edges;
-		
-		for(unsigned int i=0; i < m.get_edges().size(); i++)
-		{
-			
-			Face* face = &faces[i];
-			//Fill in the list of vertices which each face has
-			for(unsigned int j=0; j < m.get_edges()[i].size(); j++)
-				face->vertices[j] = index_to_vertex[m.get_edges()[i][j]];
+		v.cam3d = E * v.world;
+		v.cam2d = project(v.cam3d);
 
-
-			//Now get the closed loop of edges
-			for(unsigned int j=0; j < m.get_edges()[i].size(); j++)
-			{
-
-				Vertex* v1 = face->vertices[j];
-				Vertex* v2 = face->vertices[(j+1) % face->vertices.size()];
-
-				decltype(s_edges)::iterator edge;
-				bool b;
-
-				//Find the edge/insert it if it does not exist.
-				tie(edge, b) = s_edges.insert(make_pair(order(v1, v2), Edge(v1, v2)));
-				
-
-				//Either way, associate the face with the edge
-				edge->second.faces.push_back(face);
-
-				//Also associate the face with the vertex.
-				v1->faces.insert(face);
-				v2->faces.insert(face);
-			}
-		}
-		
-		//Pack the edges into a std::vector
-		for(auto& e:s_edges)
-			edges.push_back(e.second);
+		v.left_edges.clear();
+		v.right_edges.clear();
 	}
-X("find_edges");
+X("transform_vertices");
 
 	//Now go and propagate the edge information to the faces and vertices
 	for(auto& edge: edges)
 	{
-		for(unsigned int i=0; i < edge.faces.size(); i++)
-			edge.faces[i]->edges.push_back(&edge);
-		
-		
+		edge.compute_transformation_specific_information();
 		//vertex1 is to the left of vertex2
 		edge.vertex1->right_edges.push_back(&edge);
 		edge.vertex2->left_edges.push_back(&edge);
 	}
-
-X("populate_faces");
-
+X("transform_edges");
+	
 	//Now do the final sorting on the right hand edges of each vertex.
 	for(auto& v:vertices)
 		v.sort();
-
 X("sort_right_edges");
 
-	
 	//Compute the face normals
 	for(auto& f:faces)
-		f.compute_data(E);
+		f.compute_camera_plane(E);
+X("transform_faces");
+
+
+	//Sort the vertices left to right
+	vector<Vertex*> ordered_vertices;
+	for(auto& v:vertices)
+		ordered_vertices.push_back(&v);
+
+	sort(ordered_vertices.begin(), ordered_vertices.end(), 
+		[](const Vertex* v1, const Vertex* v2)
+		{
+			return v1->cam2d[0]  < v2->cam2d[0];
+		}
+	);
+	
+	const double x_delta=1e-6;
+	//Now, some vertices might share the same x coordinate. 
+	//Fix this, with an evil hack. Note that this deals
+	//with multiple vertices sharing the same x coordinate.
+	double x_prev = ordered_vertices[0]->cam2d[0];
+	for(size_t i=1; i < ordered_vertices.size(); i++)
+	{
+		if(ordered_vertices[i]->cam2d[0] == x_prev)
+			ordered_vertices[i]->cam2d[0] = ordered_vertices[i-1]->cam2d[0] + x_delta;
+		else
+			x_prev = ordered_vertices[i]->cam2d[0];
+	}
+	
+
+X("populate_faces");
+
+
 
 X("compute_normals");
 
@@ -741,8 +767,8 @@ X("compute_normals");
 			e.should_render = true;
 		else
 		{
-			Vector<3> n1 = e.faces[0]->cam_plane.slice<0,3>();
-			Vector<3> n2 = e.faces[1]->cam_plane.slice<0,3>();
+			Vector<3> n1 = e.faces[0]->cam_plane.template slice<0,3>();
+			Vector<3> n2 = e.faces[1]->cam_plane.template slice<0,3>();
 
 			//The normal sign is arbitrary, and the angle between planes could be
 			//very sharp or very shallow.
@@ -768,7 +794,7 @@ X("compute_normals");
 				e.should_render = false;
 		}
 
-
+		e.should_render=true;
 	}
 
 
@@ -780,6 +806,17 @@ X("compute_normals");
 	
 	//The final list of edge segments to record.
 	vector<EdgeSegment> output;
+
+
+	//Apparently it's faster to have y in a special struct, rather than putting
+	//it in Edge and have active_edges just be an array of Edge*. Perhaps this is
+	//because it keeps the y's close which is important since there are many accesses
+	//to this structure.
+	struct ActiveEdge
+	{
+		Edge* edge;
+		double y;
+	};
 
 
 	//Active adges will the list of edges intersecting with the current
@@ -808,8 +845,10 @@ double tinsertactive=0;
 	PointerSet<Face> faces_active(faces);
 	unordered_set<const Face*> faces_at_vertex;
 
-	for(const auto& v: vertices)
+	for(const auto& vv: ordered_vertices)
 	{
+		
+		const Vertex& v = *vv;
 
 		#ifdef DEBUG
 			auto debug_order_at_v = [&](const ActiveEdge& e1, const ActiveEdge& e2)
@@ -1297,4 +1336,33 @@ P(tinsertactive);
 P(U.reset());
 
 	return output;
+}
+
+template<class C> using stdvector=std::vector<C>;
+template<class C> using fixedvector=static_vector<C, 2>;
+
+
+
+
+
+Renderer::~Renderer()
+{}
+
+
+unique_ptr<Renderer> make_renderer_from_model(const Model& m)
+{
+	unique_ptr<Renderer> r;
+
+	try{
+		return unique_ptr<Renderer>(new ModelInformation<fixedvector>(m));
+	}
+	catch(std::length_error)
+	{
+		return unique_ptr<Renderer>(new ModelInformation<stdvector>(m));
+	}
+}
+
+vector<EdgeSegment> render(const SE3<>& E, const Model& m)
+{
+	return make_renderer_from_model(m)->render(E);
 }
