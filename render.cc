@@ -136,6 +136,7 @@ struct Edge: public OcclusionDepthOnly<Edge<FaceContainer>>
 	double gradient;
 	Vector<2> v1cam2d;
 	bool should_render;
+	bool cull;
 
 	//This is dynamic information which is in use
 	//only when the edge is active. It ought to belong to
@@ -203,6 +204,7 @@ struct Vertex
 	Vector<3> cam3d; //3d vertex position in camera coordinates
 	Vector<2> cam2d; //2d veretx position in ideal camera coordinates
 	int index; //Which vertex is this?
+	bool cull;
 
 	vector<Edge*> left_edges; //List of edges to the left of the current point
 
@@ -217,6 +219,11 @@ struct Vertex
 
 	void sort()
 	{
+		if(left_edges.empty() && right_edges.empty())
+			cull=1;
+		else
+			cull=0;
+
 		std::sort(right_edges.begin(), right_edges.end(), 
 			[&](Edge* a, Edge* b)
 			{
@@ -276,6 +283,7 @@ struct Face
 	static_vector<Edge*, 3> edges;
 	Vector<4> plane;
 	Vector<4> cam_plane;
+	bool cull;
 
 	void compute_plane()
 	{
@@ -329,7 +337,7 @@ struct Face
 
 	}
 	
-	void compute_camera_plane(const SE3<>& E)
+	void compute_camera_plane(const SE3<>& E, bool back_face_cull=0)
 	{
 
 		//The camera plane goes by the inverse because
@@ -339,7 +347,14 @@ struct Face
 		// (Ex).(Tp) = 0
 		// (xE)^t (Tp) = 0
 		// T = inv(E^t)
-		cam_plane = plane * E.inverse(); 
+		cam_plane = plane * E.inverse();
+
+		Vector<3> ray = vertices[0]->cam3d;
+
+		if(back_face_cull && plane.slice<0,3>() * ray > 0)
+			cull=true;
+		else
+			cull=false;
 
 	}
 
@@ -428,6 +443,13 @@ inline void Edge<FC>::compute_transformation_specific_information()
 	assert(Dx > 0);
 
 	v1cam2d = vertex1->cam2d;
+
+	
+	cull=true;
+
+	for(auto f:faces)
+		if(!f->cull)
+			cull=false;
 }
 
 template<template<class>class FC>
@@ -713,13 +735,22 @@ T.reset();
 	}
 X("transform_vertices");
 
+	//Compute the face normals
+	for(auto& f:faces)
+		f.compute_camera_plane(E, true);
+X("transform_faces");
+
 	//Now go and propagate the edge information to the faces and vertices
 	for(auto& edge: edges)
 	{
 		edge.compute_transformation_specific_information();
 		//vertex1 is to the left of vertex2
-		edge.vertex1->right_edges.push_back(&edge);
-		edge.vertex2->left_edges.push_back(&edge);
+
+		if(!edge.cull)
+		{
+			edge.vertex1->right_edges.push_back(&edge);
+			edge.vertex2->left_edges.push_back(&edge);
+		}
 	}
 X("transform_edges");
 	
@@ -728,16 +759,15 @@ X("transform_edges");
 		v.sort();
 X("sort_right_edges");
 
-	//Compute the face normals
-	for(auto& f:faces)
-		f.compute_camera_plane(E);
-X("transform_faces");
+
+	
 
 
 	//Sort the vertices left to right
 	vector<Vertex*> ordered_vertices;
 	for(auto& v:vertices)
-		ordered_vertices.push_back(&v);
+		if(!v.cull)
+			ordered_vertices.push_back(&v);
 
 	sort(ordered_vertices.begin(), ordered_vertices.end(), 
 		[](const Vertex* v1, const Vertex* v2)
@@ -1137,7 +1167,8 @@ teraseincoming += T.reset();
 				//Only consider faces which could possibly
 				//span this vertex.
 				for(auto& f:e.edge->faces)
-					faces_active.flip(f);
+					if(!f->cull)
+						faces_active.flip(f);
 			}
 		}
 		else
@@ -1150,7 +1181,8 @@ teraseincoming += T.reset();
 				//Only consider faces which could possibly
 				//span this vertex.
 				for(auto& f:e->edge->faces)
-					faces_active.flip(f);
+					if(!f->cull)
+						faces_active.flip(f);
 			}
 		}
 
@@ -1170,8 +1202,9 @@ tfacesactive+=T.reset();
 		//determine the visibility of edges coming from this vertex.
 		for(auto e:v.left_edges)
 			for(auto f:e->faces)
-				if(faces_active.erase(f))
-					faces_at_vertex.insert(f);
+				if(!f->cull)
+					if(faces_active.erase(f))
+						faces_at_vertex.insert(f);
 tfacesatvertex+=T.reset();
 
 		//Now, we need to check the vertex against all remaining active planes to 
@@ -1185,6 +1218,7 @@ tfacesatvertex+=T.reset();
 		unordered_set<const Face*> occluders;
 		for(auto f: faces_active)
 		{
+
 			
 			#ifdef DEBUG
 				for(const auto& fv:f->vertices)
@@ -1283,15 +1317,18 @@ tinsertpos += T.reset();
 			//First, remove any faces associated with the current edge
 			vector<const Face*> to_be_added;
 			for(auto& f: e->faces)
-				if(faces_at_vertex.count(f))
+				if(!f->cull)
 				{
-					faces_at_vertex.erase(f);
-					e->faces_above.push_back(f);
-				}
-				else
-				{
-					to_be_added.push_back(f);
-					e->faces_below.push_back(f);
+					if(faces_at_vertex.count(f))
+					{
+						faces_at_vertex.erase(f);
+						e->faces_above.push_back(f);
+					}
+					else
+					{
+						to_be_added.push_back(f);
+						e->faces_below.push_back(f);
+					}
 				}
 			
 			//Now any remaining faces are active and may or may not hide 
