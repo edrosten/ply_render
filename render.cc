@@ -721,7 +721,7 @@ vector<EdgeSegment> ModelInformation<FC>::render(const SE3<>& E)
 cvd_timer T;
 cvd_timer U;
 
-#define X(Y) cerr << Y << " = " << T.reset() * 1000 << " ms" << endl
+#define X(Y) clog << Y << " = " << T.reset() * 1000 << " ms" << endl
 T.reset();
 
 	//Fill in all the transformation specific information
@@ -737,7 +737,7 @@ X("transform_vertices");
 
 	//Compute the face normals
 	for(auto& f:faces)
-		f.compute_camera_plane(E, true);
+		f.compute_camera_plane(E, false);
 X("transform_faces");
 
 	//Now go and propagate the edge information to the faces and vertices
@@ -1364,6 +1364,7 @@ tinsertactive+=T.reset();
 		assert(is_sorted(active_edges.begin(), active_edges.end(), debug_order_at_v));
 	}
 
+P(U.reset());
 P(tind);
 P(tbubble);
 P(tlookup);
@@ -1379,7 +1380,6 @@ P(tinsertpos);
 P(tnewactiveedges);
 P(tinsertactive);
 
-P(U.reset());
 
 	return output;
 }
