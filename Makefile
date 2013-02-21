@@ -12,9 +12,12 @@ CXXFLAGS=-Wall -Wextra -O0 -g -ggdb -std=c++0x -DTOON_CHECK_BOUNDS -D_GLIBCXX_DE
 LDFLAGS=-lGVars3_debug -lcvd_debug -llapack
 endif
 
-default:render
+default:render scanline_render
 
 render: render.o model_loader.o rply-1.1.1/rply.o runner.o
+	$(CXX) -o $@  $^ $(LDFLAGS)
+
+scanline_render: scanline_render.o model_loader.o rply-1.1.1/rply.o 
 	$(CXX) -o $@  $^ $(LDFLAGS)
 
 clean:

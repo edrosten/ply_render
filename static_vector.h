@@ -3,6 +3,7 @@
 
 #include <array>
 #include <stdexcept>
+#include <cassert>
 #include "debug_helpers.h"
 
 
