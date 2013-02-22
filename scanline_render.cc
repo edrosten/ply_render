@@ -2,6 +2,7 @@
 #include "static_vector.h"
 
 #include <cassert>
+#include <algorithm>
 
 #include <cvd/videodisplay.h>
 #include <cvd/gl_helpers.h>
@@ -51,6 +52,10 @@ double line_plane_intersection(const Vector<4>& p_n, const Vector<3>& t, const V
 	return - (p*t + n) / (p*v);
 }
 
+Vector<3> line_plane_intersection_point(const Vector<4>& p_n, const Vector<3>& t, const Vector<3>& v)
+{
+	return t + line_plane_intersection(p_n, t, v)*v;
+}
 
 
 void draw_all(const vector<Vector<2>>& v, const vector<array<int, 3>>& t)
@@ -72,7 +77,10 @@ void draw_all(const vector<Vector<2>>& v, const vector<array<int, 3>>& t)
 	glEnd();
 }
 
-
+Vector<2> xz(const Vector<3>& v)
+{
+	return makeVector(v[0], v[2]);
+}
 
 int main(int argc, char** argv)
 {
@@ -182,7 +190,7 @@ int main(int argc, char** argv)
 				assert(abs(cam.project(project(intersection[j]))[1] - y) < 1e-8);
 			}
 			
-			//Sort them in X
+			//Sort the end points in X
 			int first;
 			if(proj_x[0] < proj_x[1])
 				first = 0;
@@ -206,5 +214,217 @@ int main(int argc, char** argv)
 
 		}
 	}
+
+	//Now perform a left to right sweep, bubble sorting by Z to find crossings (?)
+	for(unsigned int y_ind = 0; y_ind < triangle_buckets.size(); y_ind++)
+	{
+		cout << "\n";
+		double y = y_ind;
+		//Split segments into vertices
+		struct Vertex
+		{
+			const BucketEntry* segment;
+			double x;
+			bool add;
+		};
+	
+		vector<Vertex> segment_vertices;
+		for(const BucketEntry& b: triangle_buckets[y_ind])
+		{
+			Vertex v;
+
+			v.segment = &b;
+			v.x = b.start_x_img2d;
+			v.add = true;
+			segment_vertices.push_back(v);
+
+			v.x = b.end_x_img2d;
+			v.add = false;
+			segment_vertices.push_back(v);
+		}
+		
+		//TODO
+		//Consider this:
+		//segments within some epsilon compare as having equal x, and then are sorted
+		//so that add==false comes before add==true.
+		//
+		//This would ensure that when a start and end vertex are actually the same but
+		//differ by numerical error it will always remove before adding, thereby insuring
+		//that no epsilon sizes segments are put in, or er can claim on said insurance.
+		sort(segment_vertices.begin(), segment_vertices.end(), [](const Vertex& a, const Vertex& b)
+		{
+			return a.x < b.x;
+		});
+
+
+		struct ActiveSegment
+		{
+			double z;
+			const BucketEntry* segment;
+		};
+
+		vector<ActiveSegment> active_segments;
+
+		Vector<3> last_output_cam3d = 1e99 * Ones;;
+
+
+		for(const auto& v:segment_vertices)
+		{
+			//Compute the current vertical sweep plane corresponding 
+			//to the current vertex, to see if anything interesting has happened.
+
+			double x_cam_2d = cam.unproject(makeVector(v.x, 0))[0];
+			
+			//p.x + n = 0 (plane).
+			//If it projects to line, then n=0 and line is l.[x/z y/z 1] = 0
+			//So, p = l
+			Vector<4> plane_of_vertical_x = unit(makeVector(-1, 0, x_cam_2d, 0));
+
+			//Recompute the depths
+			for(auto& s:active_segments)
+				s.z = line_plane_intersection_point(plane_of_vertical_x, s.segment->start, s.segment->end-s.segment->start)[2];
+
+			
+			
+			//Check to see if the frontmost has swapped with any other lines
+			//
+			//If a swap has occured, then position[0] will be the old frontmost as before
+			//and position 1 will contain the segment involved in the leftmost crossing.
+			//That means position 1 is the new front.
+			//
+			//Then, repeat starting from position 1.
+			//
+			//Repeat until no swaps occur.
+			//
+			//This should generate a list of foremost line segments.
+			//
+			for(int front=0; front< (int)active_segments.size()-1; front++)
+			{
+				bool swapped=0;
+				Vector<3> leftmost_swap_pos;
+				for(int i=front+1; i < (int)active_segments.size(); i++)
+				{
+					if(active_segments[front].z > active_segments[i].z)
+					{
+						//A swap has occured, compute where.
+						Vector<2> a = xz(active_segments[front].segment->start);
+						Vector<2> b = xz(active_segments[front].segment->end) - a;
+
+						Vector<2> c = xz(active_segments[i].segment->start);
+						Vector<2> d = xz(active_segments[i].segment->end) - c;
+
+						//Compute the intersecton point
+						Matrix<2> m;
+						m[0] = b;
+						m[1] = -d;
+
+						Vector<2> alpha_beta = inv(m) * (c-a);
+
+						Vector<3> pos = alpha_beta[0]*(active_segments[front].segment->end-active_segments[front].segment->start) + active_segments[front].segment->start;
+						
+						//If this is the leftmost crossing, then move the crossing segment
+						//to a convenient position.
+						//
+						//Note this is the 3D x coordinate, not the 2D one, but since they
+						//are all on the same line then they share the same ordering.
+						if(!swapped || leftmost_swap_pos[0] < pos[0])
+						{
+							swapped=true;
+							leftmost_swap_pos = pos;
+							swap(active_segments[front+1], active_segments[i]);
+						}
+					}
+				}
+
+				if(swapped)
+				{
+					Vector<3> swap_pos_3d = leftmost_swap_pos;
+
+					//output the segment
+					cout << last_output_cam3d << endl;
+					cout << swap_pos_3d << endl;
+					cout << " " << endl;
+
+					last_output_cam3d = swap_pos_3d;
+				}
+				else
+				{
+					//Make sure the list ends with the front most one at the head
+					swap(active_segments[0], active_segments[front]);
+					break;
+				}
+			}
+
+			//Fiiiinally deal with the vertex.
+
+			if(v.add)
+			{
+				ActiveSegment new_seg;
+				new_seg.z = v.segment->start[2];
+				new_seg.segment = v.segment;
+
+				//If it's not at the front, then chuck it in somewhere.
+				if(active_segments.empty())
+				{
+					last_output_cam3d = v.segment->start;
+					active_segments.push_back(new_seg);
+				}
+				else if(v.segment->start[2] > active_segments.front().z)
+					active_segments.push_back(new_seg);
+				else
+				{
+					cout << last_output_cam3d << endl;
+					cout << line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start) << endl;
+					cout <<" " <<  endl;
+
+					active_segments.insert(active_segments.begin(), new_seg);
+
+					last_output_cam3d = v.segment->start;
+				}
+			}
+			else
+			{
+				auto to_kill = find_if(active_segments.begin(), active_segments.end(), [&](const ActiveSegment& a)
+				{
+					return a.segment == v.segment;
+				});
+				assert(to_kill != active_segments.end());
+
+				//If the one to be removed is at the front, then we need to so something special
+				//otherwise do nothing. Note if the 
+				if(to_kill == active_segments.begin())
+				{
+					
+					//Output the segment.
+					cout << last_output_cam3d << endl;
+					cout << to_kill->segment->end << endl;
+					cout << " " <<  endl;
+					
+					active_segments.erase(active_segments.begin());
+
+					//Find who is in front, an put it at the front of the list.
+					if(!active_segments.empty())
+					{
+						auto m = min_element(active_segments.begin(), active_segments.end(), [](const ActiveSegment& a, const ActiveSegment& b)
+						{
+							return a.z < b.z;
+						});
+
+						swap(*active_segments.begin(), *m);
+
+						last_output_cam3d = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
+					}
+					else
+						last_output_cam3d = Ones * 1e88;
+				}
+				else
+					active_segments.erase(to_kill);
+			}
+		}
+
+
+	}
+
+
 
 }
