@@ -80,7 +80,6 @@ int main(int argc, char** argv)
 	Camera::Linear cam;
 	ImageRef size(80, 60);
 
-VideoDisplay win(size, 10);
 
 
 	cam.get_parameters().slice<0,2>() = Ones * 40;
@@ -111,32 +110,6 @@ VideoDisplay win(size, 10);
 	for(unsigned int t=0; t < triangles.size(); t++)
 	{
 
-glClear(GL_COLOR_BUFFER_BIT);
-draw_all(img2d, triangles);
-glFlush();
-cin.get();
-
-glColor3f(.1, .1, .2);
-glBegin(GL_LINES);
-for(int yy=0; yy < size.y; yy++)
-{
-	glVertex2f(0, yy);
-	glVertex2f(size.x, yy);
-}
-glEnd();
-draw_all(img2d, triangles);
-glFlush();
-cin.get();
-
-
-glColor3f(1, 1, 0);
-glBegin(GL_LINE_LOOP);
-glVertex(img2d[triangles[t][0]]);
-glVertex(img2d[triangles[t][1]]);
-glVertex(img2d[triangles[t][2]]);
-glEnd();
-glFlush();
-
 		//Let the rows be centred on the top for now
 		
 
@@ -152,30 +125,9 @@ glFlush();
 		int min_y_ind = ceil(min_y);
 		int max_y_ind = floor(max_y);
 
-glBegin(GL_QUADS);
-glVertex2f(0, min_y_ind-0.5);
-glVertex2f(10, min_y_ind-0.5);
-glVertex2f(10, max_y_ind+0.5);
-glVertex2f(0, max_y_ind+0.5);
-glEnd();
-glFlush();
-cin.get();
-
-
-
-
-
 		for(int y_ind=min_y_ind; y_ind <= max_y_ind; y_ind++)
 		{
 			double y = y_ind; // +0.5?????
-
-glColor3f(0, 1, 0);
-glBegin(GL_LINES);
-glVertex2f(0, y);
-glVertex2f(size.x, y);
-glEnd();
-glFlush();
-
 
 			//Compute plane corresponding to the line y
 
@@ -195,7 +147,6 @@ glFlush();
 			double y_cam2d = cam.unproject(makeVector(0, y))[1];
 
 			Vector<4> p = unit(makeVector(0, -1, y_cam2d, 0));
-cerr << "p = " << p << endl;
 			//Compute the insersection of the linescan plane with the 
 			//lines
 			static_vector<pair<double, int>, 2> line_alphas;
@@ -204,8 +155,6 @@ cerr << "p = " << p << endl;
 			{
 				double alpha = line_plane_intersection(p, cam3d[triangles[t][j]], cam3d[triangles[t][(j+1)%3]] - cam3d[triangles[t][j]]);
 
-				cerr << alpha << endl;
-				
 				//If the intersection with the line happens within the triangle, then
 				//record it.
 				if(alpha >= 0 && alpha <= 1)
@@ -213,7 +162,6 @@ cerr << "p = " << p << endl;
 			}
 
 			//Some checks.
-			cerr << line_alphas.size() << endl;
 			assert(line_alphas.size() == 2);
 
 			
@@ -255,22 +203,6 @@ cerr << "p = " << p << endl;
 			b.end_edge_index   = line_alphas[!first].second;
 
 			triangle_buckets[y_ind].push_back(b);
-cerr << proj_x[first] << endl;
-cerr << proj_x[!first] << endl;
-
-glBegin(GL_LINES);
-glColor3f(1, 0, 0);
-glVertex2f(b.start_x_img2d, y);
-glColor3f(1, 0, 1);
-glVertex2f(b.end_x_img2d, y);
-glEnd();
-glFlush();
-//cin.get();
-
-cout << b.start << endl;
-cout << b.end << endl;
-cout << endl;
-
 
 		}
 	}
