@@ -218,7 +218,7 @@ VideoDisplay win(size, 10);
 	//Now perform a left to right sweep, bubble sorting by Z to find crossings (?)
 	for(unsigned int y_ind = 0; y_ind < triangle_buckets.size(); y_ind++)
 	{
-		cout << "\n";
+		//cout << "\n";
 
 double y = y_ind;
 auto assshit = [&]()
