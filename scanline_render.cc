@@ -353,7 +353,7 @@ cin.get();
 			for(int front=0; front< (int)active_segments.size()-1; front++)
 			{
 				bool swapped=0;
-				Vector<3> leftmost_swap_pos;
+				Vector<3> leftmost_swap_pos = Ones * 1e99;;
 				for(int i=front+1; i < (int)active_segments.size(); i++)
 				{
 					if(active_segments[front].z > active_segments[i].z)
@@ -372,6 +372,8 @@ cin.get();
 
 						Vector<2> alpha_beta = inv(m) * (c-a);
 
+
+
 						Vector<3> pos = alpha_beta[0]*(active_segments[front].segment->end-active_segments[front].segment->start) + active_segments[front].segment->start;
 						
 						//If this is the leftmost crossing, then move the crossing segment
@@ -381,6 +383,18 @@ cin.get();
 						//are all on the same line then they share the same ordering.
 						if(!swapped || leftmost_swap_pos[0] < pos[0])
 						{
+
+cout << "Starts:\n";
+cout << a << endl;
+cout << c << endl;
+cout << "Ends:\n";
+cout << a+b << endl;
+cout << c+d << endl;
+
+cout << "Intersect:\n";
+cout << alpha_beta[0] * b + a << endl;
+
+cout << "Boom!\n";
 							swapped=true;
 							leftmost_swap_pos = pos;
 							swap(active_segments[front+1], active_segments[i]);
