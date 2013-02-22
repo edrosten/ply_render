@@ -88,7 +88,7 @@ int main(int argc, char** argv)
 	Camera::Linear cam;
 	ImageRef size(80, 60);
 
-
+VideoDisplay win(size, 10);
 
 	cam.get_parameters().slice<0,2>() = Ones * 40;
 	cam.get_parameters().slice<2,2>() = vec(size)/2;
@@ -219,7 +219,37 @@ int main(int argc, char** argv)
 	for(unsigned int y_ind = 0; y_ind < triangle_buckets.size(); y_ind++)
 	{
 		cout << "\n";
-		double y = y_ind;
+
+double y = y_ind;
+auto assshit = [&]()
+{
+	glClear(GL_COLOR_BUFFER_BIT);
+	draw_all(img2d, triangles);
+	glColor3f(.1, .1, .2);
+	glBegin(GL_LINES);
+	for(int yy=0; yy < size.y; yy++)
+	{
+		glVertex2f(0, yy);
+		glVertex2f(size.x, yy);
+	}
+	glEnd();
+	draw_all(img2d, triangles);
+
+
+	glColor3f(0, 1, 0);
+	glBegin(GL_LINES);
+	glVertex2f(0, y);
+	glVertex2f(size.x, y);
+	glEnd();
+};
+
+assshit();
+glFlush();
+
+cout << "There are " << triangle_buckets[y_ind].size() << " triangles\n";
+
+cin.get();
+
 		//Split segments into vertices
 		struct Vertex
 		{
@@ -231,6 +261,15 @@ int main(int argc, char** argv)
 		vector<Vertex> segment_vertices;
 		for(const BucketEntry& b: triangle_buckets[y_ind])
 		{
+
+assshit();
+glColor3f(1, 1, 0);
+glBegin(GL_LINE_LOOP);
+glVertex(img2d[triangles[b.triangle_index][0]]);
+glVertex(img2d[triangles[b.triangle_index][1]]);
+glVertex(img2d[triangles[b.triangle_index][2]]);
+glEnd();
+glBegin(GL_LINES);
 			Vertex v;
 
 			v.segment = &b;
@@ -238,9 +277,19 @@ int main(int argc, char** argv)
 			v.add = true;
 			segment_vertices.push_back(v);
 
+glColor3f(1, 0, 0);
+glVertex2f(v.x, y);
+
 			v.x = b.end_x_img2d;
 			v.add = false;
 			segment_vertices.push_back(v);
+
+glColor3f(1, 0, 1);
+glVertex2f(v.x, y);
+glEnd();
+glFlush();
+cin.get();
+
 		}
 		
 		//TODO
@@ -256,6 +305,9 @@ int main(int argc, char** argv)
 			return a.x < b.x;
 		});
 
+assshit();
+glFlush();
+cin.get();
 
 		struct ActiveSegment
 		{
@@ -343,7 +395,15 @@ int main(int argc, char** argv)
 					//output the segment
 					cout << last_output_cam3d << endl;
 					cout << swap_pos_3d << endl;
-					cout << " " << endl;
+					cout << "a" << endl;
+assshit();
+glBegin(GL_LINES);
+glColor3f(1, 0, 0);
+glVertex(cam.project(project(last_output_cam3d)));
+glVertex(cam.project(project(swap_pos_3d)));
+glEnd();
+glFlush();
+cin.get();
 
 					last_output_cam3d = swap_pos_3d;
 				}
@@ -373,9 +433,19 @@ int main(int argc, char** argv)
 					active_segments.push_back(new_seg);
 				else
 				{
+					Vector<3> back_seg_ends = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
+
 					cout << last_output_cam3d << endl;
-					cout << line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start) << endl;
-					cout <<" " <<  endl;
+					cout << back_seg_ends << endl;
+					cout <<"b" <<  endl;
+assshit();
+glBegin(GL_LINES);
+glColor3f(0, 0, 1);
+glVertex(cam.project(project(last_output_cam3d)));
+glVertex(cam.project(project(back_seg_ends)));
+glEnd();
+glFlush();
+cin.get();
 
 					active_segments.insert(active_segments.begin(), new_seg);
 
@@ -398,8 +468,17 @@ int main(int argc, char** argv)
 					//Output the segment.
 					cout << last_output_cam3d << endl;
 					cout << to_kill->segment->end << endl;
-					cout << " " <<  endl;
-					
+					cout << "c" <<  endl;
+
+assshit();
+glBegin(GL_LINES);
+glColor3f(1, 0, 1);
+glVertex(cam.project(project(last_output_cam3d)));
+glVertex(cam.project(project(to_kill->segment->end)));
+glEnd();
+glFlush();
+cin.get();
+
 					active_segments.erase(active_segments.begin());
 
 					//Find who is in front, an put it at the front of the list.
