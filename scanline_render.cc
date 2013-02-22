@@ -246,7 +246,7 @@ auto assshit = [&]()
 assshit();
 glFlush();
 
-cout << "There are " << triangle_buckets[y_ind].size() << " triangles\n";
+cerr << "There are " << triangle_buckets[y_ind].size() << " triangles\n";
 
 cin.get();
 
@@ -370,7 +370,7 @@ cin.get();
 						m[0] = b;
 						m[1] = -d;
 
-						Vector<2> alpha_beta = inv(m) * (c-a);
+						Vector<2> alpha_beta = inv(m.T()) * (c-a);
 
 
 
@@ -383,18 +383,21 @@ cin.get();
 						//are all on the same line then they share the same ordering.
 						if(!swapped || leftmost_swap_pos[0] < pos[0])
 						{
+alpha_beta=makeVector(0, 1);
+cerr << "Starts:\n";
+cerr << a << endl;
+cerr << c << endl;
+cerr << "Ends:\n";
+cerr << a+b << endl;
+cerr << c+d << endl;
 
-cout << "Starts:\n";
-cout << a << endl;
-cout << c << endl;
-cout << "Ends:\n";
-cout << a+b << endl;
-cout << c+d << endl;
+cerr << "Intersect:\n";
+cerr << alpha_beta[0] * b + a << endl;
+cerr << alpha_beta[1] * d + c << endl;
 
-cout << "Intersect:\n";
-cout << alpha_beta[0] * b + a << endl;
+cerr << alpha_beta << endl;
 
-cout << "Boom!\n";
+cerr << "Boom!\n";
 							swapped=true;
 							leftmost_swap_pos = pos;
 							swap(active_segments[front+1], active_segments[i]);
@@ -409,7 +412,7 @@ cout << "Boom!\n";
 					//output the segment
 					cout << last_output_cam3d << endl;
 					cout << swap_pos_3d << endl;
-					cout << "a" << endl;
+					cout << " " << endl;
 assshit();
 glBegin(GL_LINES);
 glColor3f(1, 0, 0);
@@ -451,7 +454,7 @@ cin.get();
 
 					cout << last_output_cam3d << endl;
 					cout << back_seg_ends << endl;
-					cout <<"b" <<  endl;
+					cout <<" " <<  endl;
 assshit();
 glBegin(GL_LINES);
 glColor3f(0, 0, 1);
@@ -482,7 +485,7 @@ cin.get();
 					//Output the segment.
 					cout << last_output_cam3d << endl;
 					cout << to_kill->segment->end << endl;
-					cout << "c" <<  endl;
+					cout << " " <<  endl;
 
 assshit();
 glBegin(GL_LINES);
