@@ -192,6 +192,24 @@ vector<vector<BucketEntry>> bucket_triangles_and_compute_segments(const vector<a
 	return triangle_buckets;
 }
 
+struct OutputSegment
+{
+	Vector<3> start_cam3d, end_cam3d;
+	int triangle_index;
+	int start_edge;
+	int end_edge;
+
+	OutputSegment(const Vector<3>& s, const Vector<3>& e, int i, int se, int ee)
+	:start_cam3d(s),
+	 end_cam3d(e),
+	 triangle_index(i),
+	 start_edge(se),
+	 end_edge(ee)
+	{
+	}
+};
+
+
 int main(int argc, char** argv)
 {
 	int last = GUI.parseArguments(argc, argv);
@@ -209,12 +227,16 @@ VideoDisplay win(size, 10);
 	//E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
 
 	SE3<> E = SE3<>::exp(makeVector(-.5, -.64, 2, 0, 0, 0));
-	E = E* SE3<>::exp(makeVector(0,0,0,.3,.5,.4));
+	E = E* SE3<>::exp(makeVector(0,0,0,.0,.0,.0));
 
+
+	vector<OutputSegment> output;
 
 	vector<array<int,3>> triangles = m.get_edges();
 	vector<Vector<3>> cam3d;
 	vector<Vector<2>> img2d;
+
+
 
 	for(const auto&v:m.vertices)
 	{
@@ -249,7 +271,36 @@ auto assshit = [&]()
 	glBegin(GL_LINES);
 	glVertex2f(0, y);
 	glVertex2f(size.x, y);
+
+	
+	for(const auto& a: output)
+	{
+		if(a.triangle_index == 0)
+			glColor3f(1, 1, 0);
+		else
+			glColor3f(0, 0, 1);
+		
+		glVertex(cam.project(project(a.start_cam3d)));
+		glVertex(cam.project(project(a.end_cam3d)));
+	}
+
+
 	glEnd();
+	
+	glPointSize(3);
+	glColor3f(0, 1, 0);
+	glBegin(GL_POINTS);
+	for(const auto& a: output)
+	{
+		if(a.start_edge< 0)
+			glVertex(cam.project(project(a.start_cam3d)));
+		
+		if(a.end_edge< 0)
+			glVertex(cam.project(project(a.end_cam3d)));
+	}
+
+	glEnd();
+
 };
 
 assshit();
@@ -326,8 +377,10 @@ cin.get();
 
 		vector<ActiveSegment> active_segments;
 
+		
+		const BucketEntry* last_segment = 0;
+		int last_edge_index=-2;
 		Vector<3> last_output_cam3d = 1e99 * Ones;;
-
 
 		for(const auto& v:segment_vertices)
 		{
@@ -362,7 +415,9 @@ cin.get();
 			for(int front=0; front< (int)active_segments.size()-1; front++)
 			{
 				bool swapped=0;
-				Vector<3> leftmost_swap_pos = Ones * 1e99;;
+				Vector<3> leftmost_swap_pos = Ones * 1e99;
+				const BucketEntry* leftmost_old_front_segment=0, * leftmost_new_front_segment = 0;
+
 				for(int i=front+1; i < (int)active_segments.size(); i++)
 				{
 					if(active_segments[front].z > active_segments[i].z)
@@ -409,6 +464,10 @@ cerr << alpha_beta << endl;
 cerr << "Boom!\n";
 							swapped=true;
 							leftmost_swap_pos = pos;
+
+							leftmost_old_front_segment = active_segments[front].segment;
+							leftmost_new_front_segment = active_segments[i].segment;
+
 							swap(active_segments[front+1], active_segments[i]);
 						}
 					}
@@ -416,22 +475,38 @@ cerr << "Boom!\n";
 
 				if(swapped)
 				{
-					Vector<3> swap_pos_3d = leftmost_swap_pos;
+					//Process the swapping and output a segment.
 
-					//output the segment
-					cout << last_output_cam3d << endl;
-					cout << swap_pos_3d << endl;
-					cout << " " << endl;
+					Vector<3> out_start = last_output_cam3d;
+					Vector<3> out_end = leftmost_swap_pos;
+
+					int out_triangle = last_segment->triangle_index;
+					assert(out_triangle == leftmost_old_front_segment->triangle_index);
+					
+					int out_start_edge_index = last_edge_index;
+					int out_end_edge_index = -1; //Segment ends on an intersection, not a real edge
+
+
+
+					output.push_back(OutputSegment(
+						out_start, 
+						out_end,
+						out_triangle,
+						out_start_edge_index,
+						out_end_edge_index));
+
 assshit();
 glBegin(GL_LINES);
 glColor3f(1, 0, 0);
 glVertex(cam.project(project(last_output_cam3d)));
-glVertex(cam.project(project(swap_pos_3d)));
+glVertex(cam.project(project(leftmost_swap_pos)));
 glEnd();
 glFlush();
 cin.get();
 
-					last_output_cam3d = swap_pos_3d;
+					last_output_cam3d = leftmost_swap_pos;
+					last_edge_index = -1; //next segment starts on an intersection not a real edge
+					last_segment = leftmost_new_front_segment;
 				}
 				else
 				{
@@ -449,21 +524,45 @@ cin.get();
 				new_seg.z = v.segment->start[2];
 				new_seg.segment = v.segment;
 
-				//If it's not at the front, then chuck it in somewhere.
 				if(active_segments.empty())
 				{
+					//If it's the only active segment, then just start a new segment here.
 					last_output_cam3d = v.segment->start;
+					last_segment = v.segment;
+					last_edge_index = v.segment->start_edge_index;
+
 					active_segments.push_back(new_seg);
 				}
 				else if(v.segment->start[2] > active_segments.front().z)
+				{
+					//If it's not at the front, then chuck it in somewhere.
 					active_segments.push_back(new_seg);
+				}
 				else
 				{
+					//If the new segment is the foremost one, the output the old
+					//segment since it becomes occluded here.
 					Vector<3> back_seg_ends = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
 
-					cout << last_output_cam3d << endl;
-					cout << back_seg_ends << endl;
-					cout <<" " <<  endl;
+
+
+
+					Vector<3> out_start = last_output_cam3d;
+					Vector<3> out_end = back_seg_ends;
+
+					int out_triangle = last_segment->triangle_index;
+					assert(out_triangle == active_segments.front().segment->triangle_index);
+					
+					int out_start_edge_index = last_edge_index;
+					int out_end_edge_index = -1; //Segment ends on an occlusion, not a real edge
+
+					output.push_back(OutputSegment(
+						out_start, 
+						out_end,
+						out_triangle,
+						out_start_edge_index,
+						out_end_edge_index));
+
 assshit();
 glBegin(GL_LINES);
 glColor3f(0, 0, 1);
@@ -474,8 +573,11 @@ glFlush();
 cin.get();
 
 					active_segments.insert(active_segments.begin(), new_seg);
-
+					
+					//Create the new output segment, which starts on the real occluding edge.
 					last_output_cam3d = v.segment->start;
+					last_segment = v.segment;
+					last_edge_index = v.segment->start_edge_index;
 				}
 			}
 			else
@@ -487,14 +589,30 @@ cin.get();
 				assert(to_kill != active_segments.end());
 
 				//If the one to be removed is at the front, then we need to so something special
-				//otherwise do nothing. Note if the 
+				//otherwise do nothing. 
 				if(to_kill == active_segments.begin())
 				{
+if(active_segments.size() > 1)
+{
+cout << active_segments[0].z << endl;
+cout << active_segments[1].z << endl;
+}
+					Vector<3> out_start = last_output_cam3d;
+					Vector<3> out_end = to_kill->segment->end;
+
+					int out_triangle = last_segment->triangle_index;
+					assert(out_triangle == to_kill->segment->triangle_index);
 					
-					//Output the segment.
-					cout << last_output_cam3d << endl;
-					cout << to_kill->segment->end << endl;
-					cout << " " <<  endl;
+					int out_start_edge_index = last_edge_index;
+					int out_end_edge_index = to_kill->segment->triangle_index; //Segment ends on a real edge.
+
+					output.push_back(OutputSegment(
+						out_start, 
+						out_end,
+						out_triangle,
+						out_start_edge_index,
+						out_end_edge_index));
+
 
 assshit();
 glBegin(GL_LINES);
@@ -518,9 +636,16 @@ cin.get();
 						swap(*active_segments.begin(), *m);
 
 						last_output_cam3d = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
+						last_segment = active_segments.front().segment; 
+						last_edge_index = -1; //Segment starts on a disappearing occlusion
 					}
 					else
-						last_output_cam3d = Ones * 1e88;
+					{
+						//There is no active segment now.
+						last_segment = 0;
+						last_edge_index=-2;
+						last_output_cam3d = Ones * 1e99;
+					}
 				}
 				else
 					active_segments.erase(to_kill);
