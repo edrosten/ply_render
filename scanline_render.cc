@@ -82,36 +82,10 @@ Vector<2> xz(const Vector<3>& v)
 	return makeVector(v[0], v[2]);
 }
 
-int main(int argc, char** argv)
+
+
+vector<vector<BucketEntry>> bucket_triangles_and_compute_segments(const vector<array<int,3>>& triangles, const vector<Vector<3>>& cam3d, const vector<Vector<2>>& img2d, ImageRef size, const Camera::Linear& cam)
 {
-	int last = GUI.parseArguments(argc, argv);
-	Camera::Linear cam;
-	ImageRef size(80, 60);
-
-VideoDisplay win(size, 10);
-
-	cam.get_parameters().slice<0,2>() = Ones * 40;
-	cam.get_parameters().slice<2,2>() = vec(size)/2;
-	
-	Model m(argv[last]);
-
-	//SE3<> E = SE3<>::exp(makeVector(-.2,-.2,3,0,0,0));
-	//E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
-
-	SE3<> E = SE3<>::exp(makeVector(-.5, -.64, 2, 0, 0, 0));
-	E = E* SE3<>::exp(makeVector(0,0,0,.3,.5,.4));
-
-
-	vector<array<int,3>> triangles = m.get_edges();
-	vector<Vector<3>> cam3d;
-	vector<Vector<2>> img2d;
-
-	for(const auto&v:m.vertices)
-	{
-		cam3d.push_back(E * v);
-		img2d.push_back(cam.project(project(cam3d.back())));
-	}
-
 	vector<vector<BucketEntry>> triangle_buckets(size.y);
 
 	//Figure out which triangles should go into which rows
@@ -214,6 +188,41 @@ VideoDisplay win(size, 10);
 
 		}
 	}
+	
+	return triangle_buckets;
+}
+
+int main(int argc, char** argv)
+{
+	int last = GUI.parseArguments(argc, argv);
+	Camera::Linear cam;
+	ImageRef size(80, 60);
+
+VideoDisplay win(size, 10);
+
+	cam.get_parameters().slice<0,2>() = Ones * 40;
+	cam.get_parameters().slice<2,2>() = vec(size)/2;
+	
+	Model m(argv[last]);
+
+	//SE3<> E = SE3<>::exp(makeVector(-.2,-.2,3,0,0,0));
+	//E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
+
+	SE3<> E = SE3<>::exp(makeVector(-.5, -.64, 2, 0, 0, 0));
+	E = E* SE3<>::exp(makeVector(0,0,0,.3,.5,.4));
+
+
+	vector<array<int,3>> triangles = m.get_edges();
+	vector<Vector<3>> cam3d;
+	vector<Vector<2>> img2d;
+
+	for(const auto&v:m.vertices)
+	{
+		cam3d.push_back(E * v);
+		img2d.push_back(cam.project(project(cam3d.back())));
+	}
+
+	vector<vector<BucketEntry>> triangle_buckets = bucket_triangles_and_compute_segments(triangles, cam3d, img2d, size, cam);
 
 	//Now perform a left to right sweep, bubble sorting by Z to find crossings (?)
 	for(unsigned int y_ind = 0; y_ind < triangle_buckets.size(); y_ind++)
