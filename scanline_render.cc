@@ -385,7 +385,7 @@ cin.get();
 
 		}
 		
-		//TODO
+		static const double epsilon=1e-6;
 		//Consider this:
 		//segments within some epsilon compare as having equal x, and then are sorted
 		//so that add==false comes before add==true.
@@ -395,7 +395,30 @@ cin.get();
 		//that no epsilon sizes segments are put in, or er can claim on said insurance.
 		sort(segment_vertices.begin(), segment_vertices.end(), [](const Vertex& a, const Vertex& b)
 		{
-			return a.x < b.x;
+			if(abs(a.x - b.x) < epsilon)
+			{
+				//a.x and b.x are like rilly close. So close, in fact that they are probably the same.
+				//Let's call them equal here. So sort lexicographically by add/remove so that removal 
+				//comes first
+
+				if(a.add == false)
+				{
+					if(b.add == false)
+						return false; //a not less than b
+					else
+						return true;
+				}
+				else //a.add true
+				{
+					return false; //b cannot be strictly less than a.
+				}
+
+
+			}
+			else if(a.x < b.x)
+				return true;
+			else
+				return false;
 		});
 
 assshit();
