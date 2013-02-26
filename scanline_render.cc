@@ -45,6 +45,24 @@ struct BucketEntry
 	int start_edge_index, end_edge_index;
 };
 
+pair<int, int> edge_vertices(const BucketEntry& b, bool start, const vector<array<int,3>>& triangles)
+{
+	int index;
+	if(start)
+		index = b.start_edge_index;
+	else
+		index = b.end_edge_index;
+	
+	int v1 = triangles[b.triangle_index][index];
+	int v2 = triangles[b.triangle_index][(index+1)%3];
+	
+	if(v1 < v2)
+		return make_pair(v1, v2);
+	else
+		return make_pair(v2, v1);
+}
+
+
 double line_plane_intersection(const Vector<4>& p_n, const Vector<3>& t, const Vector<3>& v)
 {
 	/* Plane:
@@ -303,15 +321,26 @@ auto assshit = [&]()
 	glEnd();
 	
 	glPointSize(3);
-	glColor3f(0, 1, 0);
 	glBegin(GL_POINTS);
 	for(const auto& a: output)
 	{
-		if(a.start_edge == BucketEntry::IntersectionOcclusion)
+		if(a.start_edge == BucketEntry::SimpleDeocclusion)
+		{
+			glColor3f(1, 0, 0);
 			glVertex(cam.project(project(a.start_cam3d)));
+		}
+
+		if(a.start_edge == BucketEntry::IntersectionOcclusion)
+		{
+			glColor3f(0, 1, 0);
+			glVertex(cam.project(project(a.start_cam3d)));
+		}
 		
 		if(a.end_edge ==  BucketEntry::IntersectionOcclusion)
+		{
+			glColor3f(0, 1, 0);
 			glVertex(cam.project(project(a.end_cam3d)));
+		}
 	}
 	glEnd();
 
@@ -390,9 +419,6 @@ cin.get();
 		//segments within some epsilon compare as having equal x, and then are sorted
 		//so that add==false comes before add==true.
 		//
-		//This would ensure that when a start and end vertex are actually the same but
-		//differ by numerical error it will always remove before adding, thereby insuring
-		//that no epsilon sizes segments are put in, or er can claim on said insurance.
 		sort(segment_vertices.begin(), segment_vertices.end(), [](const Vertex& a, const Vertex& b)
 		{
 			if(abs(a.x - b.x) < epsilon)
@@ -438,8 +464,9 @@ cin.get();
 		int last_edge_index=BucketEntry::Invalid;
 		Vector<3> last_output_cam3d = 1e99 * Ones;;
 
-		for(const auto& v:segment_vertices)
+		for(unsigned int vertex_num=0; vertex_num < segment_vertices.size(); vertex_num++)
 		{
+			const Vertex& v = segment_vertices[vertex_num];
 			//Compute the current vertical sweep plane corresponding 
 			//to the current vertex, to see if anything interesting has happened.
 
@@ -707,28 +734,52 @@ glEnd();
 glFlush();
 cin.get();
 
-					active_segments.erase(active_segments.begin());
-
-					//Find who is in front, an put it at the front of the list.
-					if(!active_segments.empty())
+					//Check to see if the next vertex comes from a 
+					//shared edge and is the start of a segment. This indicates part
+					//of some triangle strip.
+					//
+					//If so, then substitute it straight in
+					//and do not pass go or collect $200.
+					if(vertex_num+1 < segment_vertices.size() && segment_vertices[vertex_num+1].add == true &&
+						edge_vertices(*v.segment, false, triangles) == edge_vertices(*segment_vertices[vertex_num+1].segment, true, triangles))
 					{
-						auto m = min_element(active_segments.begin(), active_segments.end(), [](const ActiveSegment& a, const ActiveSegment& b)
-						{
-							return a.z < b.z;
-						});
+						//Note Z doesn't change, and the sort order doesn't change, so we can skip the next 
+						//iteration.
+						active_segments.front().segment = segment_vertices[vertex_num+1].segment;
 
-						swap(*active_segments.begin(), *m);
-
-						last_output_cam3d = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
-						last_segment = active_segments.front().segment; 
-						last_edge_index = BucketEntry::SimpleDeocclusion; //Segment starts on a disappearing occlusion
+						last_output_cam3d = segment_vertices[vertex_num+1].segment->start;
+						last_segment = segment_vertices[vertex_num+1].segment;
+						last_edge_index = segment_vertices[vertex_num+1].segment->start_edge_index;
+						
+						vertex_num++;
 					}
 					else
 					{
-						//There is no active segment now.
-						last_segment = 0;
-						last_edge_index=BucketEntry::Invalid;
-						last_output_cam3d = Ones * 1e99;
+						active_segments.erase(active_segments.begin());
+
+						//Find who is in front, an put it at the front of the list.
+						if(!active_segments.empty())
+						{
+							//First check if the frontmost active segment shares an edge
+							//with the old (removed) active segment.
+							auto m = min_element(active_segments.begin(), active_segments.end(), [](const ActiveSegment& a, const ActiveSegment& b)
+							{
+								return a.z < b.z;
+							});
+
+							swap(*active_segments.begin(), *m);
+
+							last_output_cam3d = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
+							last_segment = active_segments.front().segment; 
+							last_edge_index = BucketEntry::SimpleDeocclusion; //Segment starts on a disappearing occlusion
+						}
+						else
+						{
+							//There is no active segment now.
+							last_segment = 0;
+							last_edge_index=BucketEntry::Invalid;
+							last_output_cam3d = Ones * 1e99;
+						}
 					}
 				}
 				else
