@@ -324,7 +324,7 @@ auto assshit = [&]()
 	glBegin(GL_POINTS);
 	for(const auto& a: output)
 	{
-		if(a.start_edge == BucketEntry::SimpleDeocclusion)
+		if(a.start_edge == BucketEntry::SimpleOcclusion)
 		{
 			glColor3f(1, 0, 0);
 			glVertex(cam.project(project(a.start_cam3d)));
@@ -682,8 +682,24 @@ glVertex(cam.project(project(back_seg_ends)));
 glEnd();
 glFlush();
 cin.get();
+				
+cout << "aaaaaaaaaaaaaaaaaaaadddddddddddddddddddd\n";
 
 					active_segments.insert(active_segments.begin(), new_seg);
+
+					//Search forwards in vertices to see if they are (a) added 
+					//and (b) share a common edge.
+					unsigned int vv = vertex_num+1;
+					for(; vv < segment_vertices.size(); vv++)
+						if(segment_vertices[vv].add == false ||  edge_vertices(*v.segment, true, triangles) != edge_vertices(*segment_vertices[vertex_num+1].segment, true, triangles))
+							break;
+					
+					for(unsigned int vi=vertex_num+1; vi < vv; vi++)
+					{
+						new_seg.segment = segment_vertices[vi].segment;
+						cerr << "Woah batman!!!\n";
+					}
+
 					
 					//Create the new output segment, which starts on the real occluding edge.
 					last_output_cam3d = v.segment->start;
@@ -733,27 +749,46 @@ glVertex(cam.project(project(to_kill->segment->end)));
 glEnd();
 glFlush();
 cin.get();
-
+					
+					bool erase_front=true;
 					//Check to see if the next vertex comes from a 
 					//shared edge and is the start of a segment. This indicates part
 					//of some triangle strip.
 					//
-					//If so, then substitute it straight in
-					//and do not pass go or collect $200.
-					if(vertex_num+1 < segment_vertices.size() && segment_vertices[vertex_num+1].add == true &&
-						edge_vertices(*v.segment, false, triangles) == edge_vertices(*segment_vertices[vertex_num+1].segment, true, triangles))
-					{
-						//Note Z doesn't change, and the sort order doesn't change, so we can skip the next 
-						//iteration.
-						active_segments.front().segment = segment_vertices[vertex_num+1].segment;
 
-						last_output_cam3d = segment_vertices[vertex_num+1].segment->start;
-						last_segment = segment_vertices[vertex_num+1].segment;
-						last_edge_index = segment_vertices[vertex_num+1].segment->start_edge_index;
-						
-						vertex_num++;
+					//TODO can we replace this with a loop if multiple triangles 
+					//share an edge?
+					if(vertex_num+1 < segment_vertices.size())
+					{
+						//If the next vertex indicates an added segment then substitute it straight in
+						//and do not pass go or collect $200.
+						//
+						//Otherewise if it's a removed segment with a shared edge, then remove it too.
+						if(segment_vertices[vertex_num+1].add == true && edge_vertices(*v.segment, false, triangles) == edge_vertices(*segment_vertices[vertex_num+1].segment, true, triangles))
+						{
+							//Note Z doesn't change, and the sort order doesn't change, so we can skip the next 
+							//iteration.
+							active_segments.front().segment = segment_vertices[vertex_num+1].segment;
+
+							last_output_cam3d = segment_vertices[vertex_num+1].segment->start;
+							last_segment = segment_vertices[vertex_num+1].segment;
+							last_edge_index = segment_vertices[vertex_num+1].segment->start_edge_index;
+							
+							vertex_num++;
+
+							erase_front=false;
+						}
+						else if(segment_vertices[vertex_num+1].add == false && edge_vertices(*v.segment, false, triangles) == edge_vertices(*segment_vertices[vertex_num+1].segment, false, triangles))
+						{
+							active_segments.erase(find_if(active_segments.begin(), active_segments.end(), [&](const ActiveSegment& a)
+							{
+								return a.segment == segment_vertices[vertex_num+1].segment;
+							}));
+							vertex_num++;
+						}
 					}
-					else
+
+					if(erase_front)
 					{
 						active_segments.erase(active_segments.begin());
 
