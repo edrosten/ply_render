@@ -28,6 +28,17 @@ using namespace tag;
 // and which edge on that triangle the segment belongs to.
 struct BucketEntry
 {
+	//Some constants to represent various cases where an edge
+	//index doesn't represent a real edge, but instead represents
+	//a segment disappearing or appearing due to a change in 
+	//occlusion status.
+
+	static const int SimpleOcclusion=-1;
+	static const int IntersectionOcclusion=-2;
+	static const int SimpleDeocclusion=-3;
+	static const int IntersectionDeocclusion=-4;
+	static const int Invalid=-99999;
+
 	double start_x_img2d, end_x_img2d;
 	Vector<3> start, end;
 	int triangle_index;
@@ -232,6 +243,7 @@ VideoDisplay win(size, 10);
 	SE3<> E = SE3<>::exp(makeVector(-.5, -.64, 2, 0, 0, 0));
 	E = E* SE3<>::exp(makeVector(0,0,0,.0,.0,.0));
 
+	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
 
 	vector<OutputSegment> output;
 
@@ -295,10 +307,10 @@ auto assshit = [&]()
 	glBegin(GL_POINTS);
 	for(const auto& a: output)
 	{
-		if(a.start_edge< 0)
+		if(a.start_edge == BucketEntry::IntersectionOcclusion)
 			glVertex(cam.project(project(a.start_cam3d)));
 		
-		if(a.end_edge< 0)
+		if(a.end_edge ==  BucketEntry::IntersectionOcclusion)
 			glVertex(cam.project(project(a.end_cam3d)));
 	}
 	glEnd();
@@ -400,7 +412,7 @@ cin.get();
 
 		
 		const BucketEntry* last_segment = 0;
-		int last_edge_index=-2;
+		int last_edge_index=BucketEntry::Invalid;
 		Vector<3> last_output_cam3d = 1e99 * Ones;;
 
 		for(const auto& v:segment_vertices)
@@ -522,7 +534,7 @@ for(int i=0; i < active_segments.size(); i++)
 					assert(out_triangle == leftmost_old_front_segment->triangle_index);
 					
 					int out_start_edge_index = last_edge_index;
-					int out_end_edge_index = -1; //Segment ends on an intersection, not a real edge
+					int out_end_edge_index = BucketEntry::IntersectionOcclusion; //Segment ends on an intersection, not a real edge
 
 
 
@@ -543,7 +555,7 @@ glFlush();
 cin.get();
 
 					last_output_cam3d = leftmost_swap_pos;
-					last_edge_index = -1; //next segment starts on an intersection not a real edge
+					last_edge_index = BucketEntry::IntersectionDeocclusion; //next segment starts on an intersection not a real edge
 					last_segment = leftmost_new_front_segment;
 				}
 				else
@@ -603,7 +615,7 @@ for(int i=0; i < active_segments.size(); i++)
 					assert(out_triangle == active_segments.front().segment->triangle_index);
 					
 					int out_start_edge_index = last_edge_index;
-					int out_end_edge_index = -1; //Segment ends on an occlusion, not a real edge
+					int out_end_edge_index = BucketEntry::SimpleOcclusion; //Segment ends on an occlusion, not a real edge
 
 					output.push_back(OutputSegment(
 						out_start, 
@@ -686,13 +698,13 @@ cin.get();
 
 						last_output_cam3d = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
 						last_segment = active_segments.front().segment; 
-						last_edge_index = -1; //Segment starts on a disappearing occlusion
+						last_edge_index = BucketEntry::SimpleDeocclusion; //Segment starts on a disappearing occlusion
 					}
 					else
 					{
 						//There is no active segment now.
 						last_segment = 0;
-						last_edge_index=-2;
+						last_edge_index=BucketEntry::Invalid;
 						last_output_cam3d = Ones * 1e99;
 					}
 				}
