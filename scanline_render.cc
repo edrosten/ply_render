@@ -8,6 +8,8 @@
 #include <cvd/gl_helpers.h>
 #include <cvd/camera.h>
 #include <cvd/vector_image_ref.h>
+#include <tag/printf.h>
+#include <tag/stdpp.h>
 
 #include <gvars3/instances.h>
 
@@ -15,6 +17,7 @@ using namespace std;
 using namespace CVD;
 using namespace GVars3;
 using namespace TooN;
+using namespace tag;
 
 
 // Each triangle is put into a bucket corresponding to the 
@@ -298,8 +301,26 @@ auto assshit = [&]()
 		if(a.end_edge< 0)
 			glVertex(cam.project(project(a.end_cam3d)));
 	}
-
 	glEnd();
+
+	glColor3f(1,0,0);
+	
+	for(int i=0 ; i < (int) cam3d.size(); i++)
+	{
+		glBegin(GL_LINES);
+		glVertex(img2d[i]);
+		glVertex(img2d[i] + makeVector(.5, -.5));
+		glEnd();
+		
+		glPushMatrix();
+		glTranslate(img2d[i]);
+		glTranslatef(.5, -.5, 0);
+		glScalef(1, -1, 0);
+		
+		glDrawText(sPrintf("%1.1f %i", cam3d[i][2], i));
+		
+		glPopMatrix();
+	}
 
 };
 
@@ -398,9 +419,16 @@ cin.get();
 			for(auto& s:active_segments)
 				s.z = line_plane_intersection_point(plane_of_vertical_x, s.segment->start, s.segment->end-s.segment->start)[2];
 
+cerr << "Current line segment list:\n";
+for(int i=0; i < active_segments.size(); i++)
+{
+	cerr << print << i << active_segments[i].z << active_segments[i].segment->triangle_index;
+}
+
 			
 			
-			//Check to see if the frontmost has swapped with any other lines
+			//Check to see if the line in 0 has changed Z ordering with any other lines. If it has
+			//then swap the new front line into position 1.
 			//
 			//If a swap has occured, then position[0] will be the old frontmost as before
 			//and position 1 will contain the segment involved in the leftmost crossing.
@@ -412,6 +440,8 @@ cin.get();
 			//
 			//This should generate a list of foremost line segments.
 			//
+
+			int global_front = 0;
 			for(int front=0; front< (int)active_segments.size()-1; front++)
 			{
 				bool swapped=0;
@@ -469,12 +499,20 @@ cerr << "Boom!\n";
 							leftmost_new_front_segment = active_segments[i].segment;
 
 							swap(active_segments[front+1], active_segments[i]);
+							global_front = front+1;
 						}
 					}
 				}
 
 				if(swapped)
 				{
+
+cerr << "New line segment list:\n";
+for(int i=0; i < active_segments.size(); i++)
+{
+	cerr << print << i << active_segments[i].z << active_segments[i].segment->triangle_index;
+}
+
 					//Process the swapping and output a segment.
 
 					Vector<3> out_start = last_output_cam3d;
@@ -515,6 +553,17 @@ cin.get();
 					break;
 				}
 			}
+
+			//Note also that no swap will be attempted here 
+			//if active_segments.size() == 0.
+			if(global_front != 0)
+				swap(active_segments[global_front], active_segments[0]);
+
+cerr << "Final line segment list:\n";
+for(int i=0; i < active_segments.size(); i++)
+{
+	cerr << print << i << active_segments[i].z << active_segments[i].segment->triangle_index;
+}
 
 			//Fiiiinally deal with the vertex.
 
