@@ -395,7 +395,7 @@ auto assshit = [&]()
 	glEnd();
 
 	glColor3f(1,0,0);
-	
+/*	
 	for(int i=0 ; i < (int) cam3d.size(); i++)
 	{
 		glBegin(GL_LINES);
@@ -412,7 +412,7 @@ auto assshit = [&]()
 		
 		glPopMatrix();
 	}
-
+*/
 };
 
 assshit();
@@ -427,14 +427,14 @@ cin.get();
 		for(const BucketEntry& b: triangle_buckets[y_ind])
 		{
 
-assshit();
-glColor3f(1, 1, 0);
-glBegin(GL_LINE_LOOP);
-glVertex(img2d[triangles[b.triangle_index][0]]);
-glVertex(img2d[triangles[b.triangle_index][1]]);
-glVertex(img2d[triangles[b.triangle_index][2]]);
-glEnd();
-glBegin(GL_LINES);
+//assshit();
+//glColor3f(1, 1, 0);
+//glBegin(GL_LINE_LOOP);
+//glVertex(img2d[triangles[b.triangle_index][0]]);
+//glVertex(img2d[triangles[b.triangle_index][1]]);
+//glVertex(img2d[triangles[b.triangle_index][2]]);
+//glEnd();
+//glBegin(GL_LINES);
 			Vertex v;
 
 			v.segment = &b;
@@ -442,18 +442,18 @@ glBegin(GL_LINES);
 			v.add = true;
 			segment_vertices.push_back(v);
 
-glColor3f(1, 0, 0);
-glVertex2f(v.x, y);
+//glColor3f(1, 0, 0);
+//glVertex2f(v.x, y);
 
 			v.x = b.end_x_img2d;
 			v.add = false;
 			segment_vertices.push_back(v);
 
-glColor3f(1, 0, 1);
-glVertex2f(v.x, y);
-glEnd();
-glFlush();
-cin.get();
+//glColor3f(1, 0, 1);
+//glVertex2f(v.x, y);
+//glEnd();
+//glFlush();
+//cin.get();
 
 		}
 		
