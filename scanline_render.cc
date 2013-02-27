@@ -163,7 +163,7 @@ vector<vector<BucketEntry>> bucket_triangles_and_compute_segments(const vector<a
 
 		//Include the triangle in a row if it touches the row centre.
 		int min_y_ind = ceil(min_y);
-		int max_y_ind = floor(max_y);
+		int max_y_ind = min(floor(max_y), size.y-1.);
 
 		for(int y_ind=min_y_ind; y_ind <= max_y_ind; y_ind++)
 		{
