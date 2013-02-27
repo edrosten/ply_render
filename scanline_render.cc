@@ -549,7 +549,8 @@ for(int i=0; i < active_segments.size(); i++)
 
 				for(int i=front+1; i < (int)active_segments.size(); i++)
 				{
-					if(active_segments[front].z > active_segments[i].z)
+					//Reject swaps caused by numerical errors.
+					if(active_segments[front].z > active_segments[i].z && edge_vertices(*active_segments[front].segment, false, triangles) != edge_vertices(*active_segments[i].segment, false, triangles))
 					{
 						//A swap has occured, compute where.
 						Vector<2> a = xz(active_segments[front].segment->start);
