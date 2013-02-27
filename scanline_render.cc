@@ -501,7 +501,7 @@ cin.get();
 		int last_edge_index=BucketEntry::Invalid;
 		Vector<3> last_output_cam3d = 1e99 * Ones;;
 
-		for(unsigned int vertex_num=0; vertex_num < segment_vertices.size(); vertex_num++)
+		for(unsigned int vertex_num=0; vertex_num < segment_vertices.size();)
 		{
 			const Vertex& v = segment_vertices[vertex_num];
 			//Compute the current vertical sweep plane corresponding 
@@ -665,63 +665,181 @@ for(int i=0; i < active_segments.size(); i++)
 }
 
 			//Fiiiinally deal with the vertex.
+
+			//At this point it is best to bundle up segments for bulk addition and removal.
+
+			//We check to see if we could be removing multiple vertices in one go for several
+			//reasons. One is that we never process intersections of lines sharing a vertex since
+			//the intersection is fake (due to rounding errors). We therefore have to remove them
+			//both to prevent inconsistencies arising. 
+
+			//Multiple removes or remove-followed-by-add is necessary to prevent minute zero sized
+			//segments from being added between the two removals or removal followed by addition.
+
+			//We check to see if we could be adding multiple vertices belonging to the same edge.
+			//If we don't then they get added in an arbitrary order due to rounding effects
+			//and tiny intersections can be found by accident when the foremost edge disappears.
+			//
+			//By adding them as a bundle, we can ensure that the foremost one is in the correct 
+			//place in front. 
+			//
+			//Note, this is irrelevant if the vertex is not initially visisble, since the intersection 
+			//will never be computed. However, adding the bundle now saves multiple passes through
+			//this loop, each of which incurs a linear cost in the number of active segments.
+
+
+
+			//They have been sorted such that for two consecutive segments sharing an edge,
+			//the removal will happen before the insertion.
+
+			//Therefore we may have a 0 or more removals followed by 0 or more additions.
 			
-			if(v.add)
+			auto model_edge_of_vertex = edge_vertices(v, triangles);
+
+			//First scan forward to find the removals.
+			auto removal_begin = segment_vertices.begin() + vertex_num;
+			auto removal_end = removal_begin;
+
+			for(;removal_end != segment_vertices.end(); removal_end++)
+				if(removal_end->add == false && edge_vertices(*removal_end, triangles)==model_edge_of_vertex)
+					;
+				else
+					break;
+
+			//Now scan forward to find the additions
+			auto add_begin = removal_end;
+			auto add_end = add_begin;
+			for(; add_end != segment_vertices.end(); add_end++)
+				if(add_end->add == true && edge_vertices(*add_end, triangles)==model_edge_of_vertex)
+					;
+				else
+					break;
+
+			
+
+			bool removed_frontal=false;
+
+			//There has to be something!
+			assert(add_end - removal_begin > 0);
+
+			if(removal_end - removal_begin > 0)
 			{
-				//Check to see if we could be adding multiple vertices belonging to the same edge.
-				//If we don't then they get added in an arbitrary order due to rounding effects
-				//and tiny intersections can be found by accident when the foremost edge disappears.
-				//
-				//By adding them as a bundle, we can ensure that the foremost one is in the correct 
-				//place in front. 
-				//
-				//Note, this is irrelevant if the vertex is not initially visisble, since the intersection 
-				//will never be computed. However, adding the bundle now saves multiple passes through
-				//this loop, each of which incurs a linear cost in the number of active segments.
-				
-				auto new_seg_edge = edge_vertices(v, triangles);
+				assert(!active_segments.empty());
 
-
-				vector<ActiveSegment> new_segments;
-				new_segments.push_back(ActiveSegment(v));
-
-				for(auto vv = segment_vertices.begin()+vertex_num+1; vv != segment_vertices.end(); vv++)
-					if(vv->add && edge_vertices(*vv, triangles)==new_seg_edge)
-						new_segments.push_back(ActiveSegment(*vv));
-					else
-						break;
-
-
-				
-				//Case for when the new segments are at the front:
-				if(active_segments.empty() || !(v.segment->start[2] > active_segments.front().z))
+				//Record whether the vertex is frontal compared to existing active edges
+				bool frontal = model_edge_of_vertex==edge_vertices(*active_segments.front().segment, false, triangles);
+			
+				//If the one to be removed is at the front, then we need to emit a line 
+				if(frontal)
 				{
-					//If there are no current active segment, then just start a new segment here.
-					//Otherwise output the old segment
+					removed_frontal = true;
+
+					Vector<3> out_start = last_output_cam3d;
+					Vector<3> out_end = active_segments.front().segment->end;
+
+					int out_triangle = last_segment->triangle_index;
+					assert(out_triangle == active_segments.front().segment->triangle_index);
+					
+					int out_start_edge_index = last_edge_index;
+					int out_end_edge_index = active_segments.front().segment->triangle_index; //Segment ends on a real edge.
+
+					output.push_back(OutputSegment(
+						out_start, 
+						out_end,
+						out_triangle,
+						out_start_edge_index,
+						out_end_edge_index));
+assshit();
+glBegin(GL_LINES);
+glColor3f(1, 0, 1);
+glVertex(cam.project(project(last_output_cam3d)));
+glVertex(cam.project(project(v.segment->end)));
+glEnd();
+glFlush();
+cin.get();
+				}
+
+
+				//Now remove all active segments which terminate here.
+				auto new_end = remove_if(active_segments.begin(), active_segments.end(), [&](const ActiveSegment& a)
+				{
+					return find_if(removal_begin, removal_end, [&](const Vertex& r)
+					{
+						return r.segment == a.segment;
+					}) != removal_end;
+
+				});
+
+				assert(active_segments.end() - new_end  == removal_end - removal_begin);
+				active_segments.erase(new_end, active_segments.end());
+
+				//If we removed and not re-added frontal edges, then we need to maintain invariants
+				//and generate a new segment
+				if(frontal && add_begin == add_end)
+				{
 					if(!active_segments.empty())
 					{
-						//Output existing segment
-						Vector<3> back_seg_ends = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
+						//Bring the foremost edge to the front.
+						auto m = min_element(active_segments.begin(), active_segments.end(), [](const ActiveSegment& a, const ActiveSegment& b)
+						{
+							return a.z < b.z;
+						});
 
+						swap(*active_segments.begin(), *m);
 
-						Vector<3> out_start = last_output_cam3d;
-						Vector<3> out_end = back_seg_ends;
-
-						int out_triangle = last_segment->triangle_index;
-						assert(out_triangle == active_segments.front().segment->triangle_index);
-						
-						int out_start_edge_index = last_edge_index;
-						int out_end_edge_index = BucketEntry::SimpleOcclusion; //Segment ends on an occlusion, not a real edge
-
-						output.push_back(OutputSegment(
-							out_start, 
-							out_end,
-							out_triangle,
-							out_start_edge_index,
-							out_end_edge_index));
+						last_output_cam3d = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
+						last_segment = active_segments.front().segment; 
+						last_edge_index = BucketEntry::SimpleDeocclusion; //Segment starts on a disappearing occlusion
 					}
+					else
+					{
+						//There is no active segment now.
+						last_segment = NULL;
+						last_edge_index=BucketEntry::Invalid;
+						last_output_cam3d = Ones * 1e99;
+					}
+				}
+			}
 
 
+			if(add_end - add_begin > 0)
+			{
+				vector<ActiveSegment> new_segments;
+
+				for(auto vv=add_begin; vv != add_end; vv++)
+					new_segments.push_back(ActiveSegment(*vv));
+
+				bool in_front = active_segments.empty() || !(v.segment->start[2] > active_segments.front().z);
+
+				//First, we need to determine if adding these edges causes an occlusion. If so
+				//then emit a segment.
+
+				if(!active_segments.empty() && !removed_frontal && in_front)
+				{
+					//Output existing segment
+					Vector<3> back_seg_ends = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
+
+
+					Vector<3> out_start = last_output_cam3d;
+					Vector<3> out_end = back_seg_ends;
+
+					int out_triangle = last_segment->triangle_index;
+					assert(out_triangle == active_segments.front().segment->triangle_index);
+
+					int out_start_edge_index = last_edge_index;
+					int out_end_edge_index = BucketEntry::SimpleOcclusion; //Segment ends on an occlusion, not a real edge
+
+					output.push_back(OutputSegment(
+								out_start, 
+								out_end,
+								out_triangle,
+								out_start_edge_index,
+								out_end_edge_index));
+				}
+
+
+				if(removed_frontal || in_front)
+				{
 					//Now sort the segments according to "depth" in that since they all
 					//start at the same points, the ones that approach the camera faster are
 					//shallower.
@@ -733,135 +851,21 @@ for(int i=0; i < active_segments.size(); i++)
 						return triangle_approach_to_camera(triangle_normals[a.segment->triangle_index]) <  triangle_approach_to_camera(triangle_normals[b.segment->triangle_index]);
 					});
 					active_segments.insert(active_segments.begin(), new_segments.begin(), new_segments.end());
-					vertex_num += new_segments.size()-1;
 					
 					//Naturally, the new segment starte at the foremost edge.
 					last_output_cam3d = active_segments.front().segment->start;
 					last_segment = active_segments.front().segment;
 					last_edge_index = active_segments.front().segment->start_edge_index;
 
-
 				}
 				else //  (v.segment->start[2] > active_segments.front().z)
 				{
 					//If it's not at the front, then chuck it in somewhere not at the front. The back is the most efficient
 					active_segments.insert(active_segments.end(), new_segments.begin(), new_segments.end());
-					vertex_num += new_segments.size()-1;
 				}
 			}
-			else
-			{
-				auto to_kill = find_if(active_segments.begin(), active_segments.end(), [&](const ActiveSegment& a)
-				{
-					return a.segment == v.segment;
-				});
-				assert(to_kill != active_segments.end());
 
-				//If the one to be removed is at the front, then we need to so something special
-				//otherwise do nothing. 
-				if(to_kill == active_segments.begin())
-				{
-if(active_segments.size() > 1)
-{
-cout << active_segments[0].z << endl;
-cout << active_segments[1].z << endl;
-}
-					Vector<3> out_start = last_output_cam3d;
-					Vector<3> out_end = to_kill->segment->end;
-
-					int out_triangle = last_segment->triangle_index;
-					assert(out_triangle == to_kill->segment->triangle_index);
-					
-					int out_start_edge_index = last_edge_index;
-					int out_end_edge_index = to_kill->segment->triangle_index; //Segment ends on a real edge.
-
-					output.push_back(OutputSegment(
-						out_start, 
-						out_end,
-						out_triangle,
-						out_start_edge_index,
-						out_end_edge_index));
-
-
-assshit();
-glBegin(GL_LINES);
-glColor3f(1, 0, 1);
-glVertex(cam.project(project(last_output_cam3d)));
-glVertex(cam.project(project(to_kill->segment->end)));
-glEnd();
-glFlush();
-cin.get();
-					
-					bool erase_front=true;
-					//Check to see if the next vertex comes from a 
-					//shared edge and is the start of a segment. This indicates part
-					//of some triangle strip.
-					//
-
-					//TODO can we replace this with a loop if multiple triangles 
-					//share an edge?
-					if(vertex_num+1 < segment_vertices.size())
-					{
-						//If the next vertex indicates an added segment then substitute it straight in
-						//and do not pass go or collect $200.
-						//
-						//Otherewise if it's a removed segment with a shared edge, then remove it too.
-						if(segment_vertices[vertex_num+1].add == true && edge_vertices(*v.segment, false, triangles) == edge_vertices(*segment_vertices[vertex_num+1].segment, true, triangles))
-						{
-							//Note Z doesn't change, and the sort order doesn't change, so we can skip the next 
-							//iteration.
-							active_segments.front().segment = segment_vertices[vertex_num+1].segment;
-
-							last_output_cam3d = segment_vertices[vertex_num+1].segment->start;
-							last_segment = segment_vertices[vertex_num+1].segment;
-							last_edge_index = segment_vertices[vertex_num+1].segment->start_edge_index;
-							
-							vertex_num++;
-
-							erase_front=false;
-						}
-						else if(segment_vertices[vertex_num+1].add == false && edge_vertices(*v.segment, false, triangles) == edge_vertices(*segment_vertices[vertex_num+1].segment, false, triangles))
-						{
-							active_segments.erase(find_if(active_segments.begin(), active_segments.end(), [&](const ActiveSegment& a)
-							{
-								return a.segment == segment_vertices[vertex_num+1].segment;
-							}));
-							vertex_num++;
-						}
-					}
-
-					if(erase_front)
-					{
-						active_segments.erase(active_segments.begin());
-
-						//Find who is in front, an put it at the front of the list.
-						if(!active_segments.empty())
-						{
-							//First check if the frontmost active segment shares an edge
-							//with the old (removed) active segment.
-							auto m = min_element(active_segments.begin(), active_segments.end(), [](const ActiveSegment& a, const ActiveSegment& b)
-							{
-								return a.z < b.z;
-							});
-
-							swap(*active_segments.begin(), *m);
-
-							last_output_cam3d = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
-							last_segment = active_segments.front().segment; 
-							last_edge_index = BucketEntry::SimpleDeocclusion; //Segment starts on a disappearing occlusion
-						}
-						else
-						{
-							//There is no active segment now.
-							last_segment = 0;
-							last_edge_index=BucketEntry::Invalid;
-							last_output_cam3d = Ones * 1e99;
-						}
-					}
-				}
-				else
-					active_segments.erase(to_kill);
-			}
+			vertex_num += add_end - removal_begin;
 		}
 
 
