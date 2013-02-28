@@ -20,6 +20,16 @@ using namespace TooN;
 using namespace tag;
 
 
+int step_counter=0;
+
+void cin_get()
+{
+	if(step_counter > 244)
+		cin.get();
+	step_counter++;
+}
+
+
 // Each triangle is put into a bucket corresponding to the 
 // image scanline it is on. The scanline (3D plane) intersection with the 
 // triangle yields a line segment. 
@@ -420,7 +430,7 @@ glFlush();
 
 cerr << "There are " << triangle_buckets[y_ind].size() << " triangles\n";
 
-cin.get();
+cin_get();
 
 	
 		vector<Vertex> segment_vertices;
@@ -453,7 +463,7 @@ cin.get();
 //glVertex2f(v.x, y);
 //glEnd();
 //glFlush();
-//cin.get();
+//cin_get();
 
 		}
 		
@@ -492,7 +502,7 @@ cin.get();
 
 assshit();
 glFlush();
-cin.get();
+cin_get();
 
 		vector<ActiveSegment> active_segments;
 
@@ -518,6 +528,7 @@ cin.get();
 			for(auto& s:active_segments)
 				s.z = line_plane_intersection_point(plane_of_vertical_x, s.segment->start, s.segment->end-s.segment->start)[2];
 
+cerr << "\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
 cerr << "Current line segment list:\n";
 for(int i=0; i < active_segments.size(); i++)
 {
@@ -543,6 +554,14 @@ for(int i=0; i < active_segments.size(); i++)
 			int global_front = 0;
 			for(int front=0; front< (int)active_segments.size()-1; front++)
 			{
+			
+			
+cerr << "\nIn loop " << front << endl;
+for(int i=0; i < active_segments.size(); i++)
+{
+	cerr << print << i << active_segments[i].z << active_segments[i].segment->triangle_index;
+}
+
 				bool swapped=0;
 				Vector<3> leftmost_swap_pos = Ones * 1e99;
 				const BucketEntry* leftmost_old_front_segment=0, * leftmost_new_front_segment = 0;
@@ -577,21 +596,20 @@ for(int i=0; i < active_segments.size(); i++)
 						//are all on the same line then they share the same ordering.
 						if(!swapped || leftmost_swap_pos[0] < pos[0])
 						{
-alpha_beta=makeVector(0, 1);
-cerr << "Starts:\n";
-cerr << a << endl;
-cerr << c << endl;
-cerr << "Ends:\n";
-cerr << a+b << endl;
-cerr << c+d << endl;
+//alpha_beta=makeVector(0, 1);
+//cerr << "Starts:\n";
+//cerr << a << endl;
+//cerr << c << endl;
+//cerr << "Ends:\n";
+//cerr << a+b << endl;
+//cerr << c+d << endl;
 
-cerr << "Intersect:\n";
-cerr << alpha_beta[0] * b + a << endl;
-cerr << alpha_beta[1] * d + c << endl;
+//cerr << "Intersect:\n";
+//cerr << alpha_beta[0] * b + a << endl;
+//cerr << alpha_beta[1] * d + c << endl;
 
-cerr << alpha_beta << endl;
+//cerr << alpha_beta << endl;
 
-cerr << "Boom!\n";
 							swapped=true;
 							leftmost_swap_pos = pos;
 
@@ -600,6 +618,8 @@ cerr << "Boom!\n";
 
 							swap(active_segments[front+1], active_segments[i]);
 							global_front = front+1;
+cerr << "Boom!\n";
+cerr << "global_front = " << global_front << endl;
 						}
 					}
 				}
@@ -640,7 +660,7 @@ glVertex(cam.project(project(last_output_cam3d)));
 glVertex(cam.project(project(leftmost_swap_pos)));
 glEnd();
 glFlush();
-cin.get();
+cin_get();
 
 					last_output_cam3d = leftmost_swap_pos;
 					last_edge_index = BucketEntry::IntersectionDeocclusion; //next segment starts on an intersection not a real edge
@@ -648,8 +668,6 @@ cin.get();
 				}
 				else
 				{
-					//Make sure the list ends with the front most one at the head
-					swap(active_segments[0], active_segments[front]);
 					break;
 				}
 			}
@@ -757,7 +775,7 @@ glVertex(cam.project(project(last_output_cam3d)));
 glVertex(cam.project(project(v.segment->end)));
 glEnd();
 glFlush();
-cin.get();
+cin_get();
 				}
 
 
