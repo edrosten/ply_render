@@ -535,6 +535,9 @@ cin_get();
 				//comes first. This helps for triangle fans.
 				
 				//Micro segments are not allowed.
+				//They can happen, but must be removed since sorting is not really
+				//possible as they have to be added THEN removed. Besides, keeping them is pointlessly
+				//inefficient.
 				assert(a.segment != b.segment);
 
 				if(a.add == false)
