@@ -24,7 +24,7 @@ int step_counter=0;
 
 void cin_get()
 {
-	if(step_counter > 244)
+	if(step_counter > 0)
 		cin.get();
 	step_counter++;
 }
@@ -114,8 +114,8 @@ double line_plane_intersection(const Vector<4>& p_n, const Vector<3>& t, const V
 
 	*/
 
-	auto p = p_n.slice<0,3>();
-	auto n = p_n[3];
+	Vector<3> p = p_n.slice<0,3>();
+	double n = p_n[3];
 
 	return - (p*t + n) / (p*v);
 }
@@ -126,21 +126,25 @@ Vector<3> line_plane_intersection_point(const Vector<4>& p_n, const Vector<3>& t
 }
 
 
-void draw_all(const vector<Vector<2>>& v, const vector<array<int, 3>>& t)
+void draw_all(const vector<Vector<2>>& v, const vector<array<int, 3>>& t, const vector<Vector<3>>& normals, const vector<Vector<3>>& c3d)
 {
 
 	glColor3f(0, 0, 1);
 	glBegin(GL_LINES);
-	for(auto i:t)
+	for(unsigned int j=0; j < t.size(); j++)
 	{
-		glVertex(v[i[0]]);
-		glVertex(v[i[1]]);
+		auto i = t[j];
+		if(normals[j] * c3d[i[0]]< 0)
+		{
+			glVertex(v[i[0]]);
+			glVertex(v[i[1]]);
 
-		glVertex(v[i[1]]);
-		glVertex(v[i[2]]);
+			glVertex(v[i[1]]);
+			glVertex(v[i[2]]);
 
-		glVertex(v[i[2]]);
-		glVertex(v[i[0]]);
+			glVertex(v[i[2]]);
+			glVertex(v[i[0]]);
+		}
 	}
 	glEnd();
 }
@@ -172,7 +176,7 @@ vector<vector<BucketEntry>> bucket_triangles_and_compute_segments(const vector<a
 		}
 
 		//Include the triangle in a row if it touches the row centre.
-		int min_y_ind = ceil(min_y);
+		int min_y_ind = max(0., ceil(min_y));
 		int max_y_ind = min(floor(max_y), size.y-1.);
 
 		for(int y_ind=min_y_ind; y_ind <= max_y_ind; y_ind++)
@@ -196,25 +200,52 @@ vector<vector<BucketEntry>> bucket_triangles_and_compute_segments(const vector<a
 			
 			double y_cam2d = cam.unproject(makeVector(0, y))[1];
 
-			Vector<4> p = unit(makeVector(0, -1, y_cam2d, 0));
+			Vector<4> p = (makeVector(0, -1, y_cam2d, 0));
 			//Compute the insersection of the linescan plane with the 
 			//lines
-			static_vector<pair<double, int>, 2> line_alphas;
-			
+			static_vector<pair<double, int>, 3> line_alphas;
+
+cerr << "\ntriangle \n";
+cerr << triangles[t][0] << " " << triangles[t][1] << " " << triangles[2][2] << endl;
 			for(int j=0; j < 3 && line_alphas.size() < 3; j++)
 			{
-				double alpha = line_plane_intersection(p, cam3d[triangles[t][j]], cam3d[triangles[t][(j+1)%3]] - cam3d[triangles[t][j]]);
+				//double alpha = line_plane_intersection(p, cam3d[triangles[t][j]], cam3d[triangles[t][(j+1)%3]] - cam3d[triangles[t][j]]);
+
+				Vector<3> tt = cam3d[triangles[t][j]];
+				Vector<3> v = cam3d[triangles[t][(j+1)%3]] -tt;
+				Vector<3> pp = p.slice<0,3>();
+				double n = p[3];
+
+				double alpha = - (pp*tt + n) / (pp*v);
 
 				//If the intersection with the line happens within the triangle, then
 				//record it.
+cerr << "Alpha:\n";
+cerr << alpha << "\n";
+cerr << p << endl;
+cerr << "tt = " << tt << endl;
+cerr << cam3d[triangles[t][(j+1)%3]] << endl;
+cerr << "v = " << v << endl;
+cerr << "pp*v = " << pp*v << endl;
+cerr << "pp*tt = " << pp*tt << endl;
+cerr << "y_cam2d = " << y_cam2d << endl;
+cerr << project(cam3d[triangles[t][0]]) << endl;
+cerr << project(cam3d[triangles[t][1]]) << endl;
+cerr << project(cam3d[triangles[t][2]]) << endl;
+
 				if(alpha >= 0 && alpha <= 1)
 					line_alphas.push_back(make_pair(alpha, j));
 			}
 
+			cerr << endl;
 			//Some checks.
-			assert(line_alphas.size() == 2);
-
-			
+			if(line_alphas.size() != 2)
+			{
+				//It really should be 2, but occasionally rounding errors
+				//mean it comes out as something else.
+				cerr << "shit\n";
+				continue;
+			}
 				
 			//Find the positions of the two intersections.
 			array<Vector<3>,2> intersection;
@@ -251,6 +282,18 @@ vector<vector<BucketEntry>> bucket_triangles_and_compute_segments(const vector<a
 
 			b.start_edge_index = line_alphas[first].second;
 			b.end_edge_index   = line_alphas[!first].second;
+
+//FIXME pass epsilon as a parameter.
+	if(abs(b.start_x_img2d - b.end_x_img2d) < 1e-6)
+	{
+cerr << "what the fuck\n";
+cerr << cam3d[triangles[t][0]] << endl;
+cerr << cam3d[triangles[t][1]] << endl;
+cerr << cam3d[triangles[t][2]] << endl;
+cerr << endl;
+cerr << p << endl;
+		continue;
+	}
 
 			triangle_buckets[y_ind].push_back(b);
 
@@ -300,11 +343,11 @@ int main(int argc, char** argv)
 {
 	int last = GUI.parseArguments(argc, argv);
 	Camera::Linear cam;
-	ImageRef size(80, 60);
+	ImageRef size(800, 600);
 
-VideoDisplay win(size, 10);
+VideoDisplay win(size, 1);
 
-	cam.get_parameters().slice<0,2>() = Ones * 40;
+	cam.get_parameters().slice<0,2>() = Ones * 400;
 	cam.get_parameters().slice<2,2>() = vec(size)/2;
 	
 	Model m(argv[last]);
@@ -312,9 +355,10 @@ VideoDisplay win(size, 10);
 	//SE3<> E = SE3<>::exp(makeVector(-.2,-.2,3,0,0,0));
 	//E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
 
-	SE3<> E = SE3<>::exp(makeVector(-.5, -.64, 2, 0, 0, 0));
+	SE3<> E = SE3<>::exp(makeVector(-.5, -.63, 2, 0, 0, 0));
 	E = E* SE3<>::exp(makeVector(0,0,0,.0,.0,.0));
 
+	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
 	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
 
 	vector<OutputSegment> output;
@@ -339,16 +383,17 @@ VideoDisplay win(size, 10);
 
 	vector<vector<BucketEntry>> triangle_buckets = bucket_triangles_and_compute_segments(triangles, cam3d, img2d, size, cam);
 
-	//Now perform a left to right sweep, bubble sorting by Z to find crossings (?)
+	//Now perform a left to right sweep, to find Z crossings 
 	for(unsigned int y_ind = 0; y_ind < triangle_buckets.size(); y_ind++)
 	{
 		//cout << "\n";
+cerr << "----------------------------------------------------------------------------------------\n";
 
 double y = y_ind;
 auto assshit = [&]()
 {
 	glClear(GL_COLOR_BUFFER_BIT);
-	draw_all(img2d, triangles);
+	//draw_all(img2d, triangles);
 	glColor3f(.1, .1, .2);
 	glBegin(GL_LINES);
 	for(int yy=0; yy < size.y; yy++)
@@ -357,7 +402,7 @@ auto assshit = [&]()
 		glVertex2f(size.x, yy);
 	}
 	glEnd();
-	draw_all(img2d, triangles);
+	//draw_all(img2d, triangles, triangle_normals, cam3d);
 
 
 	glColor3f(0, 1, 0);
@@ -373,6 +418,15 @@ auto assshit = [&]()
 		else
 			glColor3f(0, 0, 1);
 		
+
+		Vector<3> n = triangle_normals[a.triangle_index];
+
+		//Do some primitive lighting
+
+		double l=.3;
+		l += pow(max(0., unit(n) * unit(makeVector(1., -1.,-10))), 1)*.7;
+		glColor3f(l,l,l);	
+
 		glVertex(cam.project(project(a.start_cam3d)));
 		glVertex(cam.project(project(a.end_cam3d)));
 	}
@@ -428,7 +482,7 @@ auto assshit = [&]()
 assshit();
 glFlush();
 
-cerr << "There are " << triangle_buckets[y_ind].size() << " triangles\n";
+//cerr << "There are " << triangle_buckets[y_ind].size() << " triangles\n";
 
 cin_get();
 
@@ -478,7 +532,10 @@ cin_get();
 			{
 				//a.x and b.x are like rilly close. So close, in fact that they are probably the same.
 				//Let's call them equal here. So sort lexicographically by add/remove so that removal 
-				//comes first
+				//comes first. This helps for triangle fans.
+				
+				//Micro segments are not allowed.
+				assert(a.segment != b.segment);
 
 				if(a.add == false)
 				{
@@ -492,7 +549,6 @@ cin_get();
 					return false; //b cannot be strictly less than a.
 				}
 
-
 			}
 			else if(a.x < b.x)
 				return true;
@@ -500,9 +556,9 @@ cin_get();
 				return false;
 		});
 
-assshit();
-glFlush();
-cin_get();
+//assshit();
+//glFlush();
+//cin_get();
 
 		vector<ActiveSegment> active_segments;
 
@@ -653,14 +709,14 @@ for(int i=0; i < active_segments.size(); i++)
 						out_start_edge_index,
 						out_end_edge_index));
 
-assshit();
-glBegin(GL_LINES);
-glColor3f(1, 0, 0);
-glVertex(cam.project(project(last_output_cam3d)));
-glVertex(cam.project(project(leftmost_swap_pos)));
-glEnd();
-glFlush();
-cin_get();
+//assshit();
+//glBegin(GL_LINES);
+//glColor3f(1, 0, 0);
+//glVertex(cam.project(project(last_output_cam3d)));
+//glVertex(cam.project(project(leftmost_swap_pos)));
+//glEnd();
+//glFlush();
+//cin_get();
 
 					last_output_cam3d = leftmost_swap_pos;
 					last_edge_index = BucketEntry::IntersectionDeocclusion; //next segment starts on an intersection not a real edge
@@ -734,8 +790,28 @@ for(int i=0; i < active_segments.size(); i++)
 				else
 					break;
 
-			
+cerr << "Add " << add_end - add_begin << ", remove " << removal_end - removal_begin << endl;	
 
+
+
+
+if(step_counter == 342)
+{
+	cerr << "Add Vertices:\n";
+	for(auto i = add_begin; i != add_end; i++)
+		cerr << print << i->x << i->add << i->segment;
+
+	cerr << "Remove Vertices:\n";
+	for(auto i = removal_begin; i != removal_end; i++)
+		cerr << print << i->x << i->add << i->segment;
+
+	cerr << "All Vertices:\n";
+	for(auto i = segment_vertices.begin(); i != removal_end; i++)
+		cerr << print << i->x << i->add << i->segment;
+	cerr << "....................\n";
+	for(auto i = removal_end; i != segment_vertices.end(); i++)
+		cerr << print << i->x << i->add << i->segment;
+}
 			bool removed_frontal=false;
 
 			//There has to be something!
@@ -754,7 +830,7 @@ for(int i=0; i < active_segments.size(); i++)
 					removed_frontal = true;
 
 					Vector<3> out_start = last_output_cam3d;
-					Vector<3> out_end = active_segments.front().segment->end;
+					Vector<3> out_end = v.segment->end;
 
 					int out_triangle = last_segment->triangle_index;
 					assert(out_triangle == active_segments.front().segment->triangle_index);
@@ -768,14 +844,14 @@ for(int i=0; i < active_segments.size(); i++)
 						out_triangle,
 						out_start_edge_index,
 						out_end_edge_index));
-assshit();
-glBegin(GL_LINES);
-glColor3f(1, 0, 1);
-glVertex(cam.project(project(last_output_cam3d)));
-glVertex(cam.project(project(v.segment->end)));
-glEnd();
-glFlush();
-cin_get();
+//assshit();
+//glBegin(GL_LINES);
+//glColor3f(1, 0, 1);
+//glVertex(cam.project(project(last_output_cam3d)));
+//glVertex(cam.project(project(v.segment->end)));
+//glEnd();
+//glFlush();
+//cin_get();
 				}
 
 
@@ -789,6 +865,14 @@ cin_get();
 
 				});
 
+cerr << vertex_num << endl;
+cerr << "ActiveSegment:\n";
+cerr << active_segments.size() << endl;
+for(unsigned int i=0; i < active_segments.size(); i++)
+	cerr << print << i << active_segments[i].z << active_segments[i].segment;
+cerr << step_counter << endl;
+cerr << active_segments.end() - new_end << endl;
+cerr << removal_end - removal_begin << endl;
 				assert(active_segments.end() - new_end  == removal_end - removal_begin);
 				active_segments.erase(new_end, active_segments.end());
 
