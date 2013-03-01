@@ -134,7 +134,7 @@ void draw_all(const vector<Vector<2>>& v, const vector<array<int, 3>>& t, const 
 	for(unsigned int j=0; j < t.size(); j++)
 	{
 		auto i = t[j];
-		if(normals[j] * c3d[i[0]]< 0)
+		//if(normals[j] * c3d[i[0]]< 0)
 		{
 			glVertex(v[i[0]]);
 			glVertex(v[i[1]]);
@@ -343,11 +343,11 @@ int main(int argc, char** argv)
 {
 	int last = GUI.parseArguments(argc, argv);
 	Camera::Linear cam;
-	ImageRef size(800, 600);
+	ImageRef size(400, 300);
 
-VideoDisplay win(size, 1);
+VideoDisplay win(size, 2);
 
-	cam.get_parameters().slice<0,2>() = Ones * 400;
+	cam.get_parameters().slice<0,2>() = Ones * 200;
 	cam.get_parameters().slice<2,2>() = vec(size)/2;
 	
 	Model m(argv[last]);
@@ -359,7 +359,7 @@ VideoDisplay win(size, 1);
 	E = E* SE3<>::exp(makeVector(0,0,0,.0,.0,.0));
 
 	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
-	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
+	//E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
 
 	vector<OutputSegment> output;
 
@@ -402,7 +402,6 @@ auto assshit = [&]()
 		glVertex2f(size.x, yy);
 	}
 	glEnd();
-	//draw_all(img2d, triangles, triangle_normals, cam3d);
 
 
 	glColor3f(0, 1, 0);
@@ -438,13 +437,18 @@ auto assshit = [&]()
 	glBegin(GL_POINTS);
 	for(const auto& a: output)
 	{
-		if(a.start_edge == BucketEntry::SimpleOcclusion)
+		if(a.start_edge < 0)
+		{
+			glColor3f(0, 1, 0);
+			glVertex(cam.project(project(a.start_cam3d)));
+		}
+		if(a.end_edge < 0)
 		{
 			glColor3f(1, 0, 0);
 			glVertex(cam.project(project(a.start_cam3d)));
 		}
 
-		if(a.start_edge == BucketEntry::IntersectionOcclusion)
+	/*	if(a.start_edge == BucketEntry::IntersectionOcclusion)
 		{
 			glColor3f(0, 1, 0);
 			glVertex(cam.project(project(a.start_cam3d)));
@@ -454,9 +458,10 @@ auto assshit = [&]()
 		{
 			glColor3f(0, 1, 0);
 			glVertex(cam.project(project(a.end_cam3d)));
-		}
+		}*/
 	}
 	glEnd();
+	draw_all(img2d, triangles, triangle_normals, cam3d);
 
 	glColor3f(1,0,0);
 /*	
@@ -793,28 +798,6 @@ for(int i=0; i < active_segments.size(); i++)
 				else
 					break;
 
-cerr << "Add " << add_end - add_begin << ", remove " << removal_end - removal_begin << endl;	
-
-
-
-
-if(step_counter == 342)
-{
-	cerr << "Add Vertices:\n";
-	for(auto i = add_begin; i != add_end; i++)
-		cerr << print << i->x << i->add << i->segment;
-
-	cerr << "Remove Vertices:\n";
-	for(auto i = removal_begin; i != removal_end; i++)
-		cerr << print << i->x << i->add << i->segment;
-
-	cerr << "All Vertices:\n";
-	for(auto i = segment_vertices.begin(); i != removal_end; i++)
-		cerr << print << i->x << i->add << i->segment;
-	cerr << "....................\n";
-	for(auto i = removal_end; i != segment_vertices.end(); i++)
-		cerr << print << i->x << i->add << i->segment;
-}
 			bool removed_frontal=false;
 
 			//There has to be something!
@@ -868,14 +851,6 @@ if(step_counter == 342)
 
 				});
 
-cerr << vertex_num << endl;
-cerr << "ActiveSegment:\n";
-cerr << active_segments.size() << endl;
-for(unsigned int i=0; i < active_segments.size(); i++)
-	cerr << print << i << active_segments[i].z << active_segments[i].segment;
-cerr << step_counter << endl;
-cerr << active_segments.end() - new_end << endl;
-cerr << removal_end - removal_begin << endl;
 				assert(active_segments.end() - new_end  == removal_end - removal_begin);
 				active_segments.erase(new_end, active_segments.end());
 
