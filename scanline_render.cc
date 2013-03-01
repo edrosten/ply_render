@@ -24,7 +24,7 @@ int step_counter=0;
 
 void cin_get()
 {
-	if(step_counter > 0)
+	if(step_counter > 198)
 		cin.get();
 	step_counter++;
 }
@@ -206,7 +206,7 @@ vector<vector<BucketEntry>> bucket_triangles_and_compute_segments(const vector<a
 			static_vector<pair<double, int>, 3> line_alphas;
 
 cerr << "\ntriangle \n";
-cerr << triangles[t][0] << " " << triangles[t][1] << " " << triangles[2][2] << endl;
+cerr << triangles[t][0] << " " << triangles[t][1] << " " << triangles[t][2] << endl;
 			for(int j=0; j < 3 && line_alphas.size() < 3; j++)
 			{
 				//double alpha = line_plane_intersection(p, cam3d[triangles[t][j]], cam3d[triangles[t][(j+1)%3]] - cam3d[triangles[t][j]]);
@@ -343,11 +343,11 @@ int main(int argc, char** argv)
 {
 	int last = GUI.parseArguments(argc, argv);
 	Camera::Linear cam;
-	ImageRef size(400, 300);
+	ImageRef size(800, 600);
 
-VideoDisplay win(size, 2);
+VideoDisplay win(size, 1);
 
-	cam.get_parameters().slice<0,2>() = Ones * 200;
+	cam.get_parameters().slice<0,2>() = Ones * 400;
 	cam.get_parameters().slice<2,2>() = vec(size)/2;
 	
 	Model m(argv[last]);
@@ -359,7 +359,7 @@ VideoDisplay win(size, 2);
 	E = E* SE3<>::exp(makeVector(0,0,0,.0,.0,.0));
 
 	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
-	//E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
+	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
 
 	vector<OutputSegment> output;
 
@@ -388,6 +388,7 @@ VideoDisplay win(size, 2);
 	{
 		//cout << "\n";
 cerr << "----------------------------------------------------------------------------------------\n";
+cerr << step_counter << endl;
 
 double y = y_ind;
 auto assshit = [&]()
@@ -432,6 +433,7 @@ auto assshit = [&]()
 
 
 	glEnd();
+	//draw_all(img2d, triangles, triangle_normals, cam3d);
 	
 	glPointSize(3);
 	glBegin(GL_POINTS);
@@ -439,14 +441,33 @@ auto assshit = [&]()
 	{
 		if(a.start_edge < 0)
 		{
-			glColor3f(0, 1, 0);
-			glVertex(cam.project(project(a.start_cam3d)));
+			if(a.start_edge == BucketEntry::SimpleDeocclusion)
+				glColor3f(0, 1, 0);
+			else if(a.start_edge == BucketEntry::IntersectionDeocclusion)
+			{
+				glColor3f(1, 0, 0);
+				glVertex(cam.project(project(a.start_cam3d)));
+			}
+			else
+				glColor3f(0, 0, 1);
+			//glVertex(cam.project(project(a.start_cam3d)));
+			//glVertex(cam.project(project(a.start_cam3d)) + makeVector(5, -10));
 		}
-		if(a.end_edge < 0)
+		/*if(a.end_edge < 0)
 		{
-			glColor3f(1, 0, 0);
-			glVertex(cam.project(project(a.start_cam3d)));
-		}
+			if(a.end_edge == BucketEntry::SimpleOcclusion)
+				glColor3f(0, 1, 0);
+			else if(a.end_edge == BucketEntry::IntersectionOcclusion)
+				glColor3f(1, 0, 0);
+			else
+			{
+				glColor3f(0, 0, 1);
+				cerr << "WTF: " << a.end_edge << endl;
+			}
+
+			glVertex(cam.project(project(a.end_cam3d)));
+			glVertex(cam.project(project(a.end_cam3d)) + makeVector(0, 10));
+		}*/
 
 	/*	if(a.start_edge == BucketEntry::IntersectionOcclusion)
 		{
@@ -461,7 +482,6 @@ auto assshit = [&]()
 		}*/
 	}
 	glEnd();
-	draw_all(img2d, triangles, triangle_normals, cam3d);
 
 	glColor3f(1,0,0);
 /*	
@@ -489,7 +509,23 @@ glFlush();
 
 //cerr << "There are " << triangle_buckets[y_ind].size() << " triangles\n";
 
+
+cerr << y_ind << endl;
+cerr << triangle_buckets[y_ind].size() << endl;
+cerr << step_counter << endl;
 cin_get();
+
+if(y_ind == 200)
+{
+for(auto b: triangle_buckets[y_ind])
+{
+	cout << b.start[0] << " " << b.start[2] << "             ";
+	cout << b.end[0] << " " << b.end[2] << endl;
+}
+cerr << "...\n";
+}
+
+cerr << "!.....\n";
 
 	
 		vector<Vertex> segment_vertices;
@@ -592,7 +628,7 @@ cin_get();
 			for(auto& s:active_segments)
 				s.z = line_plane_intersection_point(plane_of_vertical_x, s.segment->start, s.segment->end-s.segment->start)[2];
 
-cerr << "\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
+cerr << "\n\n";
 cerr << "Current line segment list:\n";
 for(int i=0; i < active_segments.size(); i++)
 {
@@ -885,18 +921,37 @@ for(int i=0; i < active_segments.size(); i++)
 
 			if(add_end - add_begin > 0)
 			{
+
 				vector<ActiveSegment> new_segments;
 
 				for(auto vv=add_begin; vv != add_end; vv++)
+				{
 					new_segments.push_back(ActiveSegment(*vv));
-
-				bool in_front = active_segments.empty() || !(v.segment->start[2] > active_segments.front().z);
+					assert(vv->add);
+				}
+				
+				//Note that since all add segments start at the same location
+				//add_begin speaks for all of them, in terms of depth.
+				bool in_front = active_segments.empty() || !(add_begin->segment->start[2] > active_segments.front().z);
 
 				//First, we need to determine if adding these edges causes an occlusion. If so
 				//then emit a segment.
-
+cerr << "Adding...\n";
 				if(!active_segments.empty() && !removed_frontal && in_front)
 				{
+cerr << "Holy fuck this should not be happening\n";
+
+for(const auto& a:active_segments)
+	cerr << a.z << endl;
+cerr << "New:\n";
+cerr << v.segment->start[2] << endl;
+cerr << "shittttt\n";
+cerr << active_segments.front().segment->start << endl;
+cerr << active_segments.front().segment->end << endl;
+cerr << endl;
+cerr << add_begin->segment->start << endl;
+cerr << add_begin->segment->end << endl;
+
 					//Output existing segment
 					Vector<3> back_seg_ends = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
 
