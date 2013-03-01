@@ -1,0 +1,10 @@
+.*.swp
+*.o
+render
+scanline_render
+tmp*
+hxxx
+haxx*
+fuck*
+foo*
+core*
