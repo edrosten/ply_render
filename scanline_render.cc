@@ -22,14 +22,6 @@ using namespace tag;
 
 int step_counter=0;
 
-void cin_get()
-{
-	if(step_counter > 198)
-		cin.get();
-	step_counter++;
-}
-
-
 // Each triangle is put into a bucket corresponding to the 
 // image scanline it is on. The scanline (3D plane) intersection with the 
 // triangle yields a line segment. 
@@ -156,7 +148,7 @@ Vector<2> xz(const Vector<3>& v)
 
 
 
-vector<vector<BucketEntry>> bucket_triangles_and_compute_segments(const vector<array<int,3>>& triangles, const vector<Vector<3>>& cam3d, const vector<Vector<2>>& img2d, ImageRef size, const Camera::Linear& cam)
+vector<vector<BucketEntry>> bucket_triangles_and_compute_segments(const vector<array<int,3>>& triangles, const vector<Vector<3>>& cam3d, const vector<Vector<2>>& img2d, ImageRef size, const Camera::Linear& cam, double epsilon)
 {
 	vector<vector<BucketEntry>> triangle_buckets(size.y);
 
@@ -205,45 +197,21 @@ vector<vector<BucketEntry>> bucket_triangles_and_compute_segments(const vector<a
 			//lines
 			static_vector<pair<double, int>, 3> line_alphas;
 
-cerr << "\ntriangle \n";
-cerr << triangles[t][0] << " " << triangles[t][1] << " " << triangles[t][2] << endl;
 			for(int j=0; j < 3 && line_alphas.size() < 3; j++)
 			{
-				//double alpha = line_plane_intersection(p, cam3d[triangles[t][j]], cam3d[triangles[t][(j+1)%3]] - cam3d[triangles[t][j]]);
-
-				Vector<3> tt = cam3d[triangles[t][j]];
-				Vector<3> v = cam3d[triangles[t][(j+1)%3]] -tt;
-				Vector<3> pp = p.slice<0,3>();
-				double n = p[3];
-
-				double alpha = - (pp*tt + n) / (pp*v);
+				double alpha = line_plane_intersection(p, cam3d[triangles[t][j]], cam3d[triangles[t][(j+1)%3]] - cam3d[triangles[t][j]]);
 
 				//If the intersection with the line happens within the triangle, then
 				//record it.
-cerr << "Alpha:\n";
-cerr << alpha << "\n";
-cerr << p << endl;
-cerr << "tt = " << tt << endl;
-cerr << cam3d[triangles[t][(j+1)%3]] << endl;
-cerr << "v = " << v << endl;
-cerr << "pp*v = " << pp*v << endl;
-cerr << "pp*tt = " << pp*tt << endl;
-cerr << "y_cam2d = " << y_cam2d << endl;
-cerr << project(cam3d[triangles[t][0]]) << endl;
-cerr << project(cam3d[triangles[t][1]]) << endl;
-cerr << project(cam3d[triangles[t][2]]) << endl;
-
 				if(alpha >= 0 && alpha <= 1)
 					line_alphas.push_back(make_pair(alpha, j));
 			}
 
-			cerr << endl;
 			//Some checks.
 			if(line_alphas.size() != 2)
 			{
 				//It really should be 2, but occasionally rounding errors
 				//mean it comes out as something else.
-				cerr << "shit\n";
 				continue;
 			}
 				
@@ -255,7 +223,6 @@ cerr << project(cam3d[triangles[t][2]]) << endl;
 			{
 				int l = line_alphas[j].second;
 				double a = line_alphas[j].first;
-
 
 				intersection[j] = cam3d[triangles[t][l]] + a * (cam3d[triangles[t][(l+1)%3]] - cam3d[triangles[t][l]]);
 				proj_x[j] = cam.project(project(intersection[j]))[0];
@@ -286,13 +253,7 @@ cerr << project(cam3d[triangles[t][2]]) << endl;
 //FIXME pass epsilon as a parameter.
 	if(abs(b.start_x_img2d - b.end_x_img2d) < 1e-6)
 	{
-cerr << "what the fuck\n";
-cerr << cam3d[triangles[t][0]] << endl;
-cerr << cam3d[triangles[t][1]] << endl;
-cerr << cam3d[triangles[t][2]] << endl;
-cerr << endl;
-cerr << p << endl;
-		continue;
+			continue;
 	}
 
 			triangle_buckets[y_ind].push_back(b);
@@ -344,8 +305,8 @@ int main(int argc, char** argv)
 	int last = GUI.parseArguments(argc, argv);
 	Camera::Linear cam;
 	ImageRef size(800, 600);
+	static const double epsilon=1e-6;
 
-VideoDisplay win(size, 1);
 
 	cam.get_parameters().slice<0,2>() = Ones * 400;
 	cam.get_parameters().slice<2,2>() = vec(size)/2;
@@ -381,165 +342,14 @@ VideoDisplay win(size, 1);
 		triangle_normals.push_back(unit(v1^v2));
 	}
 
-	vector<vector<BucketEntry>> triangle_buckets = bucket_triangles_and_compute_segments(triangles, cam3d, img2d, size, cam);
+	vector<vector<BucketEntry>> triangle_buckets = bucket_triangles_and_compute_segments(triangles, cam3d, img2d, size, cam, epsilon);
 
 	//Now perform a left to right sweep, to find Z crossings 
 	for(unsigned int y_ind = 0; y_ind < triangle_buckets.size(); y_ind++)
 	{
-		//cout << "\n";
-cerr << "----------------------------------------------------------------------------------------\n";
-cerr << step_counter << endl;
-
-double y = y_ind;
-auto assshit = [&]()
-{
-	glClear(GL_COLOR_BUFFER_BIT);
-	//draw_all(img2d, triangles);
-	glColor3f(.1, .1, .2);
-	glBegin(GL_LINES);
-	for(int yy=0; yy < size.y; yy++)
-	{
-		glVertex2f(0, yy);
-		glVertex2f(size.x, yy);
-	}
-	glEnd();
-
-
-	glColor3f(0, 1, 0);
-	glBegin(GL_LINES);
-	glVertex2f(0, y);
-	glVertex2f(size.x, y);
-
-	
-	for(const auto& a: output)
-	{
-		if(a.triangle_index == 0)
-			glColor3f(1, 1, 0);
-		else
-			glColor3f(0, 0, 1);
-		
-
-		Vector<3> n = triangle_normals[a.triangle_index];
-
-		//Do some primitive lighting
-
-		double l=.3;
-		l += pow(max(0., unit(n) * unit(makeVector(1., -1.,-10))), 1)*.7;
-		glColor3f(l,l,l);	
-
-		glVertex(cam.project(project(a.start_cam3d)));
-		glVertex(cam.project(project(a.end_cam3d)));
-	}
-
-
-	glEnd();
-	//draw_all(img2d, triangles, triangle_normals, cam3d);
-	
-	glPointSize(3);
-	glBegin(GL_POINTS);
-	for(const auto& a: output)
-	{
-		if(a.start_edge < 0)
-		{
-			if(a.start_edge == BucketEntry::SimpleDeocclusion)
-				glColor3f(0, 1, 0);
-			else if(a.start_edge == BucketEntry::IntersectionDeocclusion)
-			{
-				glColor3f(1, 0, 0);
-				glVertex(cam.project(project(a.start_cam3d)));
-			}
-			else
-				glColor3f(0, 0, 1);
-			//glVertex(cam.project(project(a.start_cam3d)));
-			//glVertex(cam.project(project(a.start_cam3d)) + makeVector(5, -10));
-		}
-		/*if(a.end_edge < 0)
-		{
-			if(a.end_edge == BucketEntry::SimpleOcclusion)
-				glColor3f(0, 1, 0);
-			else if(a.end_edge == BucketEntry::IntersectionOcclusion)
-				glColor3f(1, 0, 0);
-			else
-			{
-				glColor3f(0, 0, 1);
-				cerr << "WTF: " << a.end_edge << endl;
-			}
-
-			glVertex(cam.project(project(a.end_cam3d)));
-			glVertex(cam.project(project(a.end_cam3d)) + makeVector(0, 10));
-		}*/
-
-	/*	if(a.start_edge == BucketEntry::IntersectionOcclusion)
-		{
-			glColor3f(0, 1, 0);
-			glVertex(cam.project(project(a.start_cam3d)));
-		}
-		
-		if(a.end_edge ==  BucketEntry::IntersectionOcclusion)
-		{
-			glColor3f(0, 1, 0);
-			glVertex(cam.project(project(a.end_cam3d)));
-		}*/
-	}
-	glEnd();
-
-	glColor3f(1,0,0);
-/*	
-	for(int i=0 ; i < (int) cam3d.size(); i++)
-	{
-		glBegin(GL_LINES);
-		glVertex(img2d[i]);
-		glVertex(img2d[i] + makeVector(.5, -.5));
-		glEnd();
-		
-		glPushMatrix();
-		glTranslate(img2d[i]);
-		glTranslatef(.5, -.5, 0);
-		glScalef(1, -1, 0);
-		
-		glDrawText(sPrintf("%1.1f %i", cam3d[i][2], i));
-		
-		glPopMatrix();
-	}
-*/
-};
-
-assshit();
-glFlush();
-
-//cerr << "There are " << triangle_buckets[y_ind].size() << " triangles\n";
-
-
-cerr << y_ind << endl;
-cerr << triangle_buckets[y_ind].size() << endl;
-cerr << step_counter << endl;
-cin_get();
-
-if(y_ind == 200)
-{
-for(auto b: triangle_buckets[y_ind])
-{
-	cout << b.start[0] << " " << b.start[2] << "             ";
-	cout << b.end[0] << " " << b.end[2] << endl;
-}
-cerr << "...\n";
-}
-
-cerr << "!.....\n";
-
-	
 		vector<Vertex> segment_vertices;
 		for(const BucketEntry& b: triangle_buckets[y_ind])
 		{
-
-//assshit();
-//glColor3f(1, 1, 0);
-//glBegin(GL_LINE_LOOP);
-//glVertex(img2d[triangles[b.triangle_index][0]]);
-//glVertex(img2d[triangles[b.triangle_index][1]]);
-//glVertex(img2d[triangles[b.triangle_index][2]]);
-//glEnd();
-//glBegin(GL_LINES);
 			Vertex v;
 
 			v.segment = &b;
@@ -547,22 +357,11 @@ cerr << "!.....\n";
 			v.add = true;
 			segment_vertices.push_back(v);
 
-//glColor3f(1, 0, 0);
-//glVertex2f(v.x, y);
-
 			v.x = b.end_x_img2d;
 			v.add = false;
 			segment_vertices.push_back(v);
-
-//glColor3f(1, 0, 1);
-//glVertex2f(v.x, y);
-//glEnd();
-//glFlush();
-//cin_get();
-
 		}
 		
-		static const double epsilon=1e-6;
 		//Consider this:
 		//segments within some epsilon compare as having equal x, and then are sorted
 		//so that add==false comes before add==true.
@@ -600,10 +399,6 @@ cerr << "!.....\n";
 				return false;
 		});
 
-//assshit();
-//glFlush();
-//cin_get();
-
 		vector<ActiveSegment> active_segments;
 
 		
@@ -628,14 +423,6 @@ cerr << "!.....\n";
 			for(auto& s:active_segments)
 				s.z = line_plane_intersection_point(plane_of_vertical_x, s.segment->start, s.segment->end-s.segment->start)[2];
 
-cerr << "\n\n";
-cerr << "Current line segment list:\n";
-for(int i=0; i < active_segments.size(); i++)
-{
-	cerr << print << i << active_segments[i].z << active_segments[i].segment->triangle_index;
-}
-
-			
 			
 			//Check to see if the line in 0 has changed Z ordering with any other lines. If it has
 			//then swap the new front line into position 1.
@@ -656,12 +443,6 @@ for(int i=0; i < active_segments.size(); i++)
 			{
 			
 			
-cerr << "\nIn loop " << front << endl;
-for(int i=0; i < active_segments.size(); i++)
-{
-	cerr << print << i << active_segments[i].z << active_segments[i].segment->triangle_index;
-}
-
 				bool swapped=0;
 				Vector<3> leftmost_swap_pos = Ones * 1e99;
 				const BucketEntry* leftmost_old_front_segment=0, * leftmost_new_front_segment = 0;
@@ -696,20 +477,6 @@ for(int i=0; i < active_segments.size(); i++)
 						//are all on the same line then they share the same ordering.
 						if(!swapped || leftmost_swap_pos[0] < pos[0])
 						{
-//alpha_beta=makeVector(0, 1);
-//cerr << "Starts:\n";
-//cerr << a << endl;
-//cerr << c << endl;
-//cerr << "Ends:\n";
-//cerr << a+b << endl;
-//cerr << c+d << endl;
-
-//cerr << "Intersect:\n";
-//cerr << alpha_beta[0] * b + a << endl;
-//cerr << alpha_beta[1] * d + c << endl;
-
-//cerr << alpha_beta << endl;
-
 							swapped=true;
 							leftmost_swap_pos = pos;
 
@@ -718,21 +485,12 @@ for(int i=0; i < active_segments.size(); i++)
 
 							swap(active_segments[front+1], active_segments[i]);
 							global_front = front+1;
-cerr << "Boom!\n";
-cerr << "global_front = " << global_front << endl;
 						}
 					}
 				}
 
 				if(swapped)
 				{
-
-cerr << "New line segment list:\n";
-for(int i=0; i < active_segments.size(); i++)
-{
-	cerr << print << i << active_segments[i].z << active_segments[i].segment->triangle_index;
-}
-
 					//Process the swapping and output a segment.
 
 					Vector<3> out_start = last_output_cam3d;
@@ -753,15 +511,6 @@ for(int i=0; i < active_segments.size(); i++)
 						out_start_edge_index,
 						out_end_edge_index));
 
-//assshit();
-//glBegin(GL_LINES);
-//glColor3f(1, 0, 0);
-//glVertex(cam.project(project(last_output_cam3d)));
-//glVertex(cam.project(project(leftmost_swap_pos)));
-//glEnd();
-//glFlush();
-//cin_get();
-
 					last_output_cam3d = leftmost_swap_pos;
 					last_edge_index = BucketEntry::IntersectionDeocclusion; //next segment starts on an intersection not a real edge
 					last_segment = leftmost_new_front_segment;
@@ -776,12 +525,6 @@ for(int i=0; i < active_segments.size(); i++)
 			//if active_segments.size() == 0.
 			if(global_front != 0)
 				swap(active_segments[global_front], active_segments[0]);
-
-cerr << "Final line segment list:\n";
-for(int i=0; i < active_segments.size(); i++)
-{
-	cerr << print << i << active_segments[i].z << active_segments[i].segment->triangle_index;
-}
 
 			//Fiiiinally deal with the vertex.
 
@@ -866,14 +609,6 @@ for(int i=0; i < active_segments.size(); i++)
 						out_triangle,
 						out_start_edge_index,
 						out_end_edge_index));
-//assshit();
-//glBegin(GL_LINES);
-//glColor3f(1, 0, 1);
-//glVertex(cam.project(project(last_output_cam3d)));
-//glVertex(cam.project(project(v.segment->end)));
-//glEnd();
-//glFlush();
-//cin_get();
 				}
 
 
@@ -936,22 +671,8 @@ for(int i=0; i < active_segments.size(); i++)
 
 				//First, we need to determine if adding these edges causes an occlusion. If so
 				//then emit a segment.
-cerr << "Adding...\n";
 				if(!active_segments.empty() && !removed_frontal && in_front)
 				{
-cerr << "Holy fuck this should not be happening\n";
-
-for(const auto& a:active_segments)
-	cerr << a.z << endl;
-cerr << "New:\n";
-cerr << v.segment->start[2] << endl;
-cerr << "shittttt\n";
-cerr << active_segments.front().segment->start << endl;
-cerr << active_segments.front().segment->end << endl;
-cerr << endl;
-cerr << add_begin->segment->start << endl;
-cerr << add_begin->segment->end << endl;
-
 					//Output existing segment
 					Vector<3> back_seg_ends = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
 
@@ -1007,6 +728,49 @@ cerr << add_begin->segment->end << endl;
 
 	}
 
+VideoDisplay win(size, 1);
+cerr << "----------------------------------------------------------------------------------------\n";
+cerr << step_counter << endl;
+glClear(GL_COLOR_BUFFER_BIT);
+glBegin(GL_LINES);
+
+for(const auto& a: output)
+{
+	Vector<3> n = triangle_normals[a.triangle_index];
+
+	//Do some primitive lighting
+
+	double l=.3;
+	l += pow(max(0., unit(n) * unit(makeVector(1., -1.,-10))), 1)*.7;
+	glColor3f(l,l,l);	
+
+	glVertex(cam.project(project(a.start_cam3d)));
+	glVertex(cam.project(project(a.end_cam3d)));
+}
+
+glEnd();
+
+glPointSize(3);
+glBegin(GL_POINTS);
+for(const auto& a: output)
+{
+	if(a.start_edge < 0)
+	{
+		if(a.start_edge == BucketEntry::SimpleDeocclusion)
+			glColor3f(0, 1, 0);
+		else if(a.start_edge == BucketEntry::IntersectionDeocclusion)
+		{
+			glColor3f(1, 0, 0);
+			glVertex(cam.project(project(a.start_cam3d)));
+		}
+		else
+			glColor3f(0, 0, 1);
+	}
+}
+glEnd();
+
+glFlush();
+cin.get();
 
 
 }
