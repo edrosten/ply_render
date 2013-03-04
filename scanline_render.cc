@@ -118,29 +118,6 @@ Vector<3> line_plane_intersection_point(const Vector<4>& p_n, const Vector<3>& t
 }
 
 
-void draw_all(const vector<Vector<2>>& v, const vector<array<int, 3>>& t, const vector<Vector<3>>& normals, const vector<Vector<3>>& c3d)
-{
-
-	glColor3f(0, 0, 1);
-	glBegin(GL_LINES);
-	for(unsigned int j=0; j < t.size(); j++)
-	{
-		auto i = t[j];
-		//if(normals[j] * c3d[i[0]]< 0)
-		{
-			glVertex(v[i[0]]);
-			glVertex(v[i[1]]);
-
-			glVertex(v[i[1]]);
-			glVertex(v[i[2]]);
-
-			glVertex(v[i[2]]);
-			glVertex(v[i[0]]);
-		}
-	}
-	glEnd();
-}
-
 Vector<2> xz(const Vector<3>& v)
 {
 	return makeVector(v[0], v[2]);
@@ -249,15 +226,15 @@ vector<vector<BucketEntry>> bucket_triangles_and_compute_segments(const vector<a
 
 			b.start_edge_index = line_alphas[first].second;
 			b.end_edge_index   = line_alphas[!first].second;
-
-//FIXME pass epsilon as a parameter.
-	if(abs(b.start_x_img2d - b.end_x_img2d) < 1e-6)
-	{
-			continue;
-	}
+			
+			//Remove the micro-segments. Very small segments are (a) inefficient
+			//but (b) a right pain in the neck because they have to be added
+			//before being removed at the same x location instead of the other
+			//way around like the much more common triangle strips.
+			if(abs(b.start_x_img2d - b.end_x_img2d) < epsilon)
+				continue;
 
 			triangle_buckets[y_ind].push_back(b);
-
 		}
 	}
 	
