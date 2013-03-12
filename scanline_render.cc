@@ -1,26 +1,42 @@
-#include "model_loader.h"
 #include "static_vector.h"
+#include "scanline_render.h"
 
 #include <cassert>
 #include <algorithm>
 
-#include <cvd/videodisplay.h>
-#include <cvd/gl_helpers.h>
 #include <cvd/camera.h>
 #include <cvd/vector_image_ref.h>
-#include <tag/printf.h>
-#include <tag/stdpp.h>
-
-#include <gvars3/instances.h>
 
 using namespace std;
 using namespace CVD;
-using namespace GVars3;
 using namespace TooN;
-using namespace tag;
 
 
-int step_counter=0;
+struct Edge
+{
+	//Note that each edge in this code currently has a maximum of 3 edges
+	//Note that this is a hack.
+	static_vector<int, 3> triangles;
+	int vertex_1, vertex_2;
+};
+
+class ScanlineRendererImpl
+{
+	private:
+		//List of triangles, in terms of vertex indices.
+		//Edges are 0,1 1,2 2,0
+		const vector<array<int, 3> > triangles;
+		static constexpr double epsilon=1e-6;
+	
+	public:
+		ScanlineRendererImpl(const vector<array<int,3>>& triangles);
+		std::vector<OutputSegment> render(const std::vector<TooN::Vector<3>>& v, const Camera::Linear& cam, ImageRef size);
+};
+
+ScanlineRendererImpl::ScanlineRendererImpl(const vector<array<int,3>>& tr_)
+:triangles(tr_)
+{
+}
 
 // Each triangle is put into a bucket corresponding to the 
 // image scanline it is on. The scanline (3D plane) intersection with the 
@@ -241,22 +257,6 @@ vector<vector<BucketEntry>> bucket_triangles_and_compute_segments(const vector<a
 	return triangle_buckets;
 }
 
-struct OutputSegment
-{
-	Vector<3> start_cam3d, end_cam3d;
-	int triangle_index;
-	int start_edge;
-	int end_edge;
-
-	OutputSegment(const Vector<3>& s, const Vector<3>& e, int i, int se, int ee)
-	:start_cam3d(s),
-	 end_cam3d(e),
-	 triangle_index(i),
-	 start_edge(se),
-	 end_edge(ee)
-	{
-	}
-};
 
 
 double triangle_approach_to_camera(const Vector<3>& n)
@@ -277,39 +277,27 @@ double triangle_approach_to_camera(const Vector<3>& n)
 		return -n[0];
 }
 
-int main(int argc, char** argv)
+
+
+
+
+
+
+
+
+
+
+
+std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::Vector<3>>& cam3d, const Camera::Linear& cam, ImageRef size)
 {
-	int last = GUI.parseArguments(argc, argv);
-	Camera::Linear cam;
-	ImageRef size(800, 600);
-	static const double epsilon=1e-6;
-
-
-	cam.get_parameters().slice<0,2>() = Ones * 400;
-	cam.get_parameters().slice<2,2>() = vec(size)/2;
-	
-	Model m(argv[last]);
-
-	//SE3<> E = SE3<>::exp(makeVector(-.2,-.2,3,0,0,0));
-	//E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
-
-	SE3<> E = SE3<>::exp(makeVector(-.5, -.63, 2, 0, 0, 0));
-	E = E* SE3<>::exp(makeVector(0,0,0,.0,.0,.0));
-
-	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
-	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
-
 	vector<OutputSegment> output;
 
-	vector<array<int,3>> triangles = m.get_edges();
 	vector<Vector<3>> triangle_normals;
-	vector<Vector<3>> cam3d;
 	vector<Vector<2>> img2d;
 
-	for(const auto&v:m.vertices)
+	for(const auto&v:cam3d)
 	{
-		cam3d.push_back(E * v);
-		img2d.push_back(cam.project(project(cam3d.back())));
+		img2d.push_back(cam.project(project(v)));
 	}
 
 	for(const auto& t:triangles)
@@ -381,6 +369,7 @@ int main(int argc, char** argv)
 		
 		const BucketEntry* last_segment = 0;
 		int last_edge_index=BucketEntry::Invalid;
+		bool last_connected_on_left=false;
 		Vector<3> last_output_cam3d = 1e99 * Ones;;
 
 		for(unsigned int vertex_num=0; vertex_num < segment_vertices.size();)
@@ -486,11 +475,14 @@ int main(int argc, char** argv)
 						out_end,
 						out_triangle,
 						out_start_edge_index,
-						out_end_edge_index));
+						out_end_edge_index,
+						last_connected_on_left,
+						false));
 
 					last_output_cam3d = leftmost_swap_pos;
 					last_edge_index = BucketEntry::IntersectionDeocclusion; //next segment starts on an intersection not a real edge
 					last_segment = leftmost_new_front_segment;
+					last_connected_on_left=false;
 				}
 				else
 				{
@@ -579,13 +571,16 @@ int main(int argc, char** argv)
 					
 					int out_start_edge_index = last_edge_index;
 					int out_end_edge_index = active_segments.front().segment->triangle_index; //Segment ends on a real edge.
+					
 
+					bool connects_on_right = (add_end - add_begin) != 0;
 					output.push_back(OutputSegment(
 						out_start, 
 						out_end,
 						out_triangle,
 						out_start_edge_index,
-						out_end_edge_index));
+						out_end_edge_index,
+						last_connected_on_left, connects_on_right));
 				}
 
 
@@ -619,6 +614,7 @@ int main(int argc, char** argv)
 						last_output_cam3d = line_plane_intersection_point(plane_of_vertical_x, active_segments.front().segment->start, active_segments.front().segment->end - active_segments.front().segment->start);
 						last_segment = active_segments.front().segment; 
 						last_edge_index = BucketEntry::SimpleDeocclusion; //Segment starts on a disappearing occlusion
+						last_connected_on_left=false;
 					}
 					else
 					{
@@ -626,6 +622,7 @@ int main(int argc, char** argv)
 						last_segment = NULL;
 						last_edge_index=BucketEntry::Invalid;
 						last_output_cam3d = Ones * 1e99;
+						last_connected_on_left = false;
 					}
 				}
 			}
@@ -668,7 +665,8 @@ int main(int argc, char** argv)
 								out_end,
 								out_triangle,
 								out_start_edge_index,
-								out_end_edge_index));
+								out_end_edge_index,
+								last_connected_on_left, false));
 				}
 
 
@@ -690,6 +688,7 @@ int main(int argc, char** argv)
 					last_output_cam3d = active_segments.front().segment->start;
 					last_segment = active_segments.front().segment;
 					last_edge_index = active_segments.front().segment->start_edge_index;
+					last_connected_on_left = (removal_end - removal_begin)!=0;
 
 				}
 				else //  (v.segment->start[2] > active_segments.front().z)
@@ -704,50 +703,29 @@ int main(int argc, char** argv)
 
 
 	}
+	
+	return output;
+}
 
-VideoDisplay win(size, 1);
-cerr << "----------------------------------------------------------------------------------------\n";
-cerr << step_counter << endl;
-glClear(GL_COLOR_BUFFER_BIT);
-glBegin(GL_LINES);
 
-for(const auto& a: output)
+
+
+
+
+ScanlineRenderer::ScanlineRenderer(const vector<array<int,3>>& tr)
+:impl(new ScanlineRendererImpl(tr))
 {
-	Vector<3> n = triangle_normals[a.triangle_index];
-
-	//Do some primitive lighting
-
-	double l=.3;
-	l += pow(max(0., unit(n) * unit(makeVector(1., -1.,-10))), 1)*.7;
-	glColor3f(l,l,l);	
-
-	glVertex(cam.project(project(a.start_cam3d)));
-	glVertex(cam.project(project(a.end_cam3d)));
 }
 
-glEnd();
 
-glPointSize(3);
-glBegin(GL_POINTS);
-for(const auto& a: output)
+ScanlineRenderer::~ScanlineRenderer()
 {
-	if(a.start_edge < 0)
-	{
-		if(a.start_edge == BucketEntry::SimpleDeocclusion)
-			glColor3f(0, 1, 0);
-		else if(a.start_edge == BucketEntry::IntersectionDeocclusion)
-		{
-			glColor3f(1, 0, 0);
-			glVertex(cam.project(project(a.start_cam3d)));
-		}
-		else
-			glColor3f(0, 0, 1);
-	}
+	delete impl;
 }
-glEnd();
-
-glFlush();
-cin.get();
-
-
+std::vector<OutputSegment> ScanlineRenderer::render(const std::vector<TooN::Vector<3>>& cam3d, const Camera::Linear& cam, ImageRef size)
+{
+	return impl->render(cam3d, cam, size);
 }
+
+
+

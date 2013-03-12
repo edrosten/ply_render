@@ -1,7 +1,5 @@
 #include "scanline_render.h"
-using namespace CVD;
-using namespace std;
-using namespace TooN;
+#include "model_loader.h"
 
 #include <cvd/videodisplay.h>
 #include <cvd/gl_helpers.h>
@@ -11,6 +9,11 @@ using namespace TooN;
 #include <tag/stdpp.h>
 
 #include <gvars3/instances.h>
+
+using namespace CVD;
+using namespace std;
+using namespace TooN;
+using namespace GVars3;
 
 int main(int argc, char** argv)
 {
