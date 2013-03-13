@@ -51,11 +51,14 @@ struct BucketEntry
 	//a segment disappearing or appearing due to a change in 
 	//occlusion status.
 
-	static const int SimpleOcclusion=-1;
-	static const int IntersectionOcclusion=-2;
-	static const int SimpleDeocclusion=-3;
-	static const int IntersectionDeocclusion=-4;
-	static const int Invalid=-99999;
+	#define DOCONST(X) static const int X = ScanlineRenderer::X
+
+
+	DOCONST(SimpleOcclusion);
+	DOCONST(IntersectionOcclusion);
+	DOCONST(SimpleDeocclusion);
+	DOCONST(IntersectionDeocclusion);
+	DOCONST(Invalid);
 
 	double start_x_img2d, end_x_img2d;
 	Vector<3> start, end;
