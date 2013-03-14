@@ -573,7 +573,7 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 					assert(out_triangle == active_segments.front().segment->triangle_index);
 					
 					int out_start_edge_index = last_edge_index;
-					int out_end_edge_index = active_segments.front().segment->triangle_index; //Segment ends on a real edge.
+					int out_end_edge_index = active_segments.front().segment->end_edge_index; //Segment ends on a real edge.
 					
 
 					bool connects_on_right = (add_end - add_begin) != 0;
