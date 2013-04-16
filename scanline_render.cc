@@ -363,7 +363,7 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 		win.make_current();
 		global_counter++;
 		cerr << global_counter << endl;
-		bool fuckit=0;
+		bool debug_detail_here=0;
 	#endif
 
 	vector<OutputSegment> output;
@@ -390,8 +390,12 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 	{
 
 		//group vertices together into chunks so that the chunks share a 
-		//common edge. Surely we should therefore be interecting the horizontal
+		//common edge model. Surely we should therefore be interecting the horizontal
 		//plane with the edges not triangles...
+		//
+		//The ordering is then done with respect to the chunks, not the indvidual 
+		//intersections, which ensures that they remain prefectly aligned, and removals
+		//of old segments always happen before addition of new ones.
 		struct VertChunk{
 			vector<const BucketEntry*> remove;
 			vector<const BucketEntry*> add;
@@ -399,10 +403,15 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 			double x;
 			Vector<3> pos;
 		};
+		
 
-		vector<VertChunk> sweep_vertices;
+		//Note while we associate each edge with a chunk, record whatever
+		//the "last" position was. These will only differ by numerical error.
+		//
+		//Note that if we did it properly and only intersect the plane with the
+		//edges, not with the whole triangles, then this would not even occur.
+		//Either way it is not a problem.
 		map<pair<int, int>, VertChunk> vertices_by_edge;
-
 		for(const BucketEntry& b: triangle_buckets[y_ind])
 		{
 			auto edge = edge_vertices(b, true, triangles);
@@ -417,6 +426,9 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 			vertices_by_edge[edge].x = b.end_x_img2d;
 			vertices_by_edge[edge].pos = b.end;
 		}
+		
+		//Now order the vertex chunks left to right.
+		vector<VertChunk> sweep_vertices;
 		for(auto& v:vertices_by_edge)
 		{
 			sweep_vertices.push_back(move(v.second));
@@ -437,7 +449,7 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 		
 
 		#ifdef DEBUG_SCANLINE_RENDER
-			fuckit=0;
+			debug_detail_here=0;
 			if(global_counter == 4)
 			{
 				DP(y_ind << endl);
@@ -451,27 +463,13 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 
 					DP("Number of segments in line:" << triangle_buckets[y_ind].size() << endl);
 
-					fuckit=1;
+					debug_detail_here=1;
 
-		
-					cerr << "Segment vertices...\n";
-					{
-						//int g=0;
-					/*	for(auto a:segment_vertices)
-						{
-							cerr << g++ << endl;
-							cerr << "    " << a.segment << endl;	
-							cerr << "    " << setprecision(15) << a.x << endl;	
-							cerr << "    " << a.add << endl;	
-
-
-						}*/
-					}
 					debug_pause();
 				}
 			}
 			else
-				fuckit=0;
+				debug_detail_here=0;
 		#endif
 
 		for(unsigned int vertex_num=0; vertex_num < sweep_vertices.size(); vertex_num++)
@@ -479,19 +477,11 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 			const VertChunk& v = sweep_vertices[vertex_num];
 
 			#ifdef DEBUG_SCANLINE_RENDER
-				if(fuckit)
+				if(debug_detail_here)
 				{
 					clog << "--------------------------------------------\n";
 					clog << vertex_num << endl;
-					
-					//clog << "   add = " << v.add << endl;
 					clog << "   "       << v.x << endl;
-					//clog << "   "       << v.segment << endl;
-					//clog << "   "       << v.segment->triangle_index << endl;
-					//clog << "   "       << v.segment->triangle_index << endl;
-					//clog << "   ev = "  <<  edge_vertices(v, triangles).first << endl;
-					//clog << "   ev = "  <<  edge_vertices(v, triangles).second << endl;;
-
 					glClear(GL_COLOR_BUFFER_BIT);
 					debug_draw_model(triangles, cam3d, cam);
 					
@@ -634,7 +624,7 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 			}
 			
 			#ifdef DEBUG_SCANLINE_RENDER
-				if(fuckit)
+				if(debug_detail_here)
 				{
 					clog << "Done Z order processing:\n";
 					for(auto s:active_segments)
@@ -689,7 +679,7 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 			auto model_edge_of_vertex = v.edge;
 			
 			#ifdef DEBUG_SCANLINE_RENDER
-				if(fuckit)
+				if(debug_detail_here)
 				{
 					clog << "model_edge_of_vertex = \n";
 					clog << model_edge_of_vertex.first << endl;
