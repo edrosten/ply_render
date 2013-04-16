@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <algorithm>
+#include <map>
 
 #include <cvd/camera.h>
 #include <cvd/vector_image_ref.h>
@@ -11,6 +12,19 @@ using namespace std;
 using namespace CVD;
 using namespace TooN;
 
+//#define DEBUG_SCANLINE_RENDER
+
+
+#ifdef DEBUG_SCANLINE_RENDER
+	#include <cvd/videodisplay.h>
+	#include <cvd/gl_helpers.h>
+	#include <iomanip>
+	#define D(X) do{X;}while(0)
+	#define DP(X) do{clog << X;}while(0)
+#else
+	#define D(X) do{}while(0)
+	#define DP(X) do{}while(0)
+#endif
 
 struct Edge
 {
@@ -66,6 +80,14 @@ struct BucketEntry
 	int start_edge_index, end_edge_index;
 };
 
+pair<int, int> ord(int v1, int v2)
+{
+	if(v1 < v2)
+		return make_pair(v1, v2);
+	else
+		return make_pair(v2, v1);
+}
+
 pair<int, int> edge_vertices(const BucketEntry& b, bool start, const vector<array<int,3>>& triangles)
 {
 	int index;
@@ -77,24 +99,21 @@ pair<int, int> edge_vertices(const BucketEntry& b, bool start, const vector<arra
 	int v1 = triangles[b.triangle_index][index];
 	int v2 = triangles[b.triangle_index][(index+1)%3];
 	
-	if(v1 < v2)
-		return make_pair(v1, v2);
-	else
-		return make_pair(v2, v1);
+	return ord(v1, v2);
 }
 
 //Split segments into vertices
-struct Vertex
+/*struct Vertex
 {
 	const BucketEntry* segment;
 	double x;
 	bool add;
-};
+};*/
 
-pair<int,int> edge_vertices(const Vertex&v,const vector<array<int,3>>& triangles)
+/*pair<int,int> edge_vertices(const Vertex&v,const vector<array<int,3>>& triangles)
 {
 	return edge_vertices(*v.segment, v.add, triangles);
-}
+}*/
 
 
 struct ActiveSegment
@@ -102,8 +121,12 @@ struct ActiveSegment
 	double z;
 	const BucketEntry* segment;
 
-	explicit ActiveSegment(const Vertex& v)
+	/*explicit ActiveSegment(const Vertex& v)
 	:z(v.segment->start[2]), segment(v.segment)
+	{}*/
+
+	explicit ActiveSegment(double z, const BucketEntry*b)
+	:z(z), segment(b)
 	{}
 
 	ActiveSegment()=default;
@@ -142,6 +165,57 @@ Vector<2> xz(const Vector<3>& v)
 	return makeVector(v[0], v[2]);
 }
 
+
+#ifdef DEBUG_SCANLINE_RENDER
+	void debug_draw_output_segments(const vector<OutputSegment>& v, const Camera::Linear& cam)
+	{
+		glBegin(GL_LINES);
+		glColor3f(1,0,0);
+		for(const auto& s:v)
+		{		
+			glVertex(cam.project(project(s.start_cam3d)));
+			glVertex(cam.project(project(s.end_cam3d)));
+		}	
+		glEnd();
+	}
+
+	void debug_pause()
+	{
+		glFlush();
+		cin.get();
+	}
+
+	void debug_draw_model(const vector<array<int,3>>& t, const vector<Vector<3>> pts, const Camera::Linear& cam)
+	{
+		glColor3f(0,0,1);
+		glBegin(GL_LINES);
+		for(auto a:t)
+		{
+			glVertex(cam.project(project(pts[a[0]])));
+			glVertex(cam.project(project(pts[a[1]])));
+			glVertex(cam.project(project(pts[a[1]])));
+			glVertex(cam.project(project(pts[a[2]])));
+			glVertex(cam.project(project(pts[a[2]])));
+			glVertex(cam.project(project(pts[a[0]])));
+		}
+
+		glEnd();
+	}
+	static int global_counter=-1;
+
+#else
+	void debug_draw_output_segments(...)
+	{
+	}
+
+	void debug_pause(...)
+	{
+	}
+
+	void draw_model(...)
+	{
+	}
+#endif
 
 
 vector<vector<BucketEntry>> bucket_triangles_and_compute_segments(const vector<array<int,3>>& triangles, const vector<Vector<3>>& cam3d, const vector<Vector<2>>& img2d, ImageRef size, const Camera::Linear& cam, double epsilon)
@@ -282,17 +356,16 @@ double triangle_approach_to_camera(const Vector<3>& n)
 
 
 
-
-
-
-
-
-
-
-
-
 std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::Vector<3>>& cam3d, const Camera::Linear& cam, ImageRef size)
 {
+	#ifdef DEBUG_SCANLINE_RENDER
+		VideoDisplay win(size, 5);
+		win.make_current();
+		global_counter++;
+		cerr << global_counter << endl;
+		bool fuckit=0;
+	#endif
+
 	vector<OutputSegment> output;
 
 	vector<Vector<3>> triangle_normals;
@@ -315,69 +388,136 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 	//Now perform a left to right sweep, to find Z crossings 
 	for(unsigned int y_ind = 0; y_ind < triangle_buckets.size(); y_ind++)
 	{
-		vector<Vertex> segment_vertices;
+
+		//group vertices together into chunks so that the chunks share a 
+		//common edge. Surely we should therefore be interecting the horizontal
+		//plane with the edges not triangles...
+		struct VertChunk{
+			vector<const BucketEntry*> remove;
+			vector<const BucketEntry*> add;
+			pair<int, int> edge;
+			double x;
+			Vector<3> pos;
+		};
+
+		vector<VertChunk> sweep_vertices;
+		map<pair<int, int>, VertChunk> vertices_by_edge;
+
 		for(const BucketEntry& b: triangle_buckets[y_ind])
 		{
-			Vertex v;
+			auto edge = edge_vertices(b, true, triangles);
 
-			v.segment = &b;
-			v.x = b.start_x_img2d;
-			v.add = true;
-			segment_vertices.push_back(v);
+			vertices_by_edge[edge].add.push_back(&b);
+			vertices_by_edge[edge].x = b.start_x_img2d;
+			vertices_by_edge[edge].pos = b.start;
+			
+			edge = edge_vertices(b, false, triangles);
 
-			v.x = b.end_x_img2d;
-			v.add = false;
-			segment_vertices.push_back(v);
+			vertices_by_edge[edge].remove.push_back(&b);
+			vertices_by_edge[edge].x = b.end_x_img2d;
+			vertices_by_edge[edge].pos = b.end;
 		}
-		
-		//Consider this:
-		//segments within some epsilon compare as having equal x, and then are sorted
-		//so that add==false comes before add==true.
-		//
-		sort(segment_vertices.begin(), segment_vertices.end(), [](const Vertex& a, const Vertex& b)
+		for(auto& v:vertices_by_edge)
 		{
-			if(abs(a.x - b.x) < epsilon)
-			{
-				//a.x and b.x are like rilly close. So close, in fact that they are probably the same.
-				//Let's call them equal here. So sort lexicographically by add/remove so that removal 
-				//comes first. This helps for triangle fans.
-				
-				//Micro segments are not allowed.
-				//They can happen, but must be removed since sorting is not really
-				//possible as they have to be added THEN removed. Besides, keeping them is pointlessly
-				//inefficient.
-				assert(a.segment != b.segment);
+			sweep_vertices.push_back(move(v.second));
+			sweep_vertices.back().edge = v.first;
+		}
 
-				if(a.add == false)
-				{
-					if(b.add == false)
-						return false; //a not less than b
-					else
-						return true;
-				}
-				else //a.add true
-				{
-					return false; //b cannot be strictly less than a.
-				}
-
-			}
-			else if(a.x < b.x)
-				return true;
-			else
-				return false;
+		sort(sweep_vertices.begin(), sweep_vertices.end(), [](const VertChunk& a, const VertChunk& b)
+		{
+			return a.x < b.x;
 		});
 
 		vector<ActiveSegment> active_segments;
-
 		
 		const BucketEntry* last_segment = 0;
 		int last_edge_index=BucketEntry::Invalid;
 		bool last_connected_on_left=false;
 		Vector<3> last_output_cam3d = 1e99 * Ones;;
+		
 
-		for(unsigned int vertex_num=0; vertex_num < segment_vertices.size();)
+		#ifdef DEBUG_SCANLINE_RENDER
+			fuckit=0;
+			if(global_counter == 4)
+			{
+				DP(y_ind << endl);
+				if(y_ind == 23)
+				{
+					DP("Starting new segment\n");	
+					D(glClear(GL_COLOR_BUFFER_BIT));
+					debug_draw_model(triangles, cam3d, cam);
+					debug_draw_output_segments(output, cam);
+
+
+					DP("Number of segments in line:" << triangle_buckets[y_ind].size() << endl);
+
+					fuckit=1;
+
+		
+					cerr << "Segment vertices...\n";
+					{
+						//int g=0;
+					/*	for(auto a:segment_vertices)
+						{
+							cerr << g++ << endl;
+							cerr << "    " << a.segment << endl;	
+							cerr << "    " << setprecision(15) << a.x << endl;	
+							cerr << "    " << a.add << endl;	
+
+
+						}*/
+					}
+					debug_pause();
+				}
+			}
+			else
+				fuckit=0;
+		#endif
+
+		for(unsigned int vertex_num=0; vertex_num < sweep_vertices.size(); vertex_num++)
 		{
-			const Vertex& v = segment_vertices[vertex_num];
+			const VertChunk& v = sweep_vertices[vertex_num];
+
+			#ifdef DEBUG_SCANLINE_RENDER
+				if(fuckit)
+				{
+					clog << "--------------------------------------------\n";
+					clog << vertex_num << endl;
+					
+					//clog << "   add = " << v.add << endl;
+					clog << "   "       << v.x << endl;
+					//clog << "   "       << v.segment << endl;
+					//clog << "   "       << v.segment->triangle_index << endl;
+					//clog << "   "       << v.segment->triangle_index << endl;
+					//clog << "   ev = "  <<  edge_vertices(v, triangles).first << endl;
+					//clog << "   ev = "  <<  edge_vertices(v, triangles).second << endl;;
+
+					glClear(GL_COLOR_BUFFER_BIT);
+					debug_draw_model(triangles, cam3d, cam);
+					
+					debug_draw_output_segments(output, cam);
+					glBegin(GL_LINES);
+					glColor3f(0,1,0);
+					glVertex2f(v.x, 0);
+					glVertex2f(v.x, 1000);
+					glEnd();
+					glFlush();
+
+					clog << "Active segments:\n";
+					for(auto s:active_segments)
+					{
+						clog << s.z << endl;
+						clog << "    " << s.segment << endl;
+						clog << "        " << s.segment->triangle_index << endl;
+						clog << "        " << s.segment->start_edge_index << endl;
+						clog << "        " << s.segment->end_edge_index << endl;
+					}
+
+
+					debug_pause();
+				}
+			#endif
+
 			//Compute the current vertical sweep plane corresponding 
 			//to the current vertex, to see if anything interesting has happened.
 
@@ -492,6 +632,24 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 					break;
 				}
 			}
+			
+			#ifdef DEBUG_SCANLINE_RENDER
+				if(fuckit)
+				{
+					clog << "Done Z order processing:\n";
+					for(auto s:active_segments)
+					{
+						clog << s.z << endl;
+						clog << "    " << s.segment << endl;
+						clog << "        " << s.segment->triangle_index << endl;
+						clog << "        " << s.segment->start_edge_index << endl;
+						clog << "        " << s.segment->end_edge_index << endl;
+						clog << "        x = " << s.segment->start_x_img2d << "   " << s.segment->end_x_img2d << endl;
+						clog << "        ev = " << edge_vertices(*s.segment, false, triangles).first << endl;
+						clog << "        ev = " << edge_vertices(*s.segment, false, triangles).second << endl;
+					}
+				}
+			#endif
 
 			//Note also that no swap will be attempted here 
 			//if active_segments.size() == 0.
@@ -528,33 +686,24 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 
 			//Therefore we may have a 0 or more removals followed by 0 or more additions.
 			
-			auto model_edge_of_vertex = edge_vertices(v, triangles);
-
-			//First scan forward to find the removals.
-			auto removal_begin = segment_vertices.begin() + vertex_num;
-			auto removal_end = removal_begin;
-
-			for(;removal_end != segment_vertices.end(); removal_end++)
-				if(removal_end->add == false && edge_vertices(*removal_end, triangles)==model_edge_of_vertex)
-					;
-				else
-					break;
-
-			//Now scan forward to find the additions
-			auto add_begin = removal_end;
-			auto add_end = add_begin;
-			for(; add_end != segment_vertices.end(); add_end++)
-				if(add_end->add == true && edge_vertices(*add_end, triangles)==model_edge_of_vertex)
-					;
-				else
-					break;
+			auto model_edge_of_vertex = v.edge;
+			
+			#ifdef DEBUG_SCANLINE_RENDER
+				if(fuckit)
+				{
+					clog << "model_edge_of_vertex = \n";
+					clog << model_edge_of_vertex.first << endl;
+					clog << model_edge_of_vertex.second << endl;
+				}
+			#endif
+	
 
 			bool removed_frontal=false;
 
 			//There has to be something!
-			assert(add_end - removal_begin > 0);
+			assert(!v.remove.empty() || !v.add.empty());
 
-			if(removal_end - removal_begin > 0)
+			if(!v.remove.empty())
 			{
 				assert(!active_segments.empty());
 
@@ -567,7 +716,7 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 					removed_frontal = true;
 
 					Vector<3> out_start = last_output_cam3d;
-					Vector<3> out_end = v.segment->end;
+					Vector<3> out_end = v.pos;
 
 					int out_triangle = last_segment->triangle_index;
 					assert(out_triangle == active_segments.front().segment->triangle_index);
@@ -576,7 +725,7 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 					int out_end_edge_index = active_segments.front().segment->end_edge_index; //Segment ends on a real edge.
 					
 
-					bool connects_on_right = (add_end - add_begin) != 0;
+					bool connects_on_right = v.add.size() != 0;
 					output.push_back(OutputSegment(
 						out_start, 
 						out_end,
@@ -590,19 +739,18 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 				//Now remove all active segments which terminate here.
 				auto new_end = remove_if(active_segments.begin(), active_segments.end(), [&](const ActiveSegment& a)
 				{
-					return find_if(removal_begin, removal_end, [&](const Vertex& r)
+					return find_if(v.remove.begin(), v.remove.end(), [&](const BucketEntry* b)
 					{
-						return r.segment == a.segment;
-					}) != removal_end;
-
+						return b == a.segment;
+					}) != v.remove.end();
 				});
 
-				assert(active_segments.end() - new_end  == removal_end - removal_begin);
+				assert(active_segments.end() - new_end  == v.remove.size());
 				active_segments.erase(new_end, active_segments.end());
 
 				//If we removed and not re-added frontal edges, then we need to maintain invariants
 				//and generate a new segment
-				if(frontal && add_begin == add_end)
+				if(frontal && v.add.empty())
 				{
 					if(!active_segments.empty())
 					{
@@ -631,20 +779,17 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 			}
 
 
-			if(add_end - add_begin > 0)
+			if(!v.add.empty())
 			{
 
 				vector<ActiveSegment> new_segments;
 
-				for(auto vv=add_begin; vv != add_end; vv++)
-				{
-					new_segments.push_back(ActiveSegment(*vv));
-					assert(vv->add);
-				}
+				for(auto vv=v.add.begin(); vv != v.add.end(); vv++)
+					new_segments.push_back(ActiveSegment(v.pos[2], *vv));
 				
 				//Note that since all add segments start at the same location
 				//add_begin speaks for all of them, in terms of depth.
-				bool in_front = active_segments.empty() || !(add_begin->segment->start[2] > active_segments.front().z);
+				bool in_front = active_segments.empty() || !(v.pos[2] > active_segments.front().z);
 
 				//First, we need to determine if adding these edges causes an occlusion. If so
 				//then emit a segment.
@@ -691,7 +836,7 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 					last_output_cam3d = active_segments.front().segment->start;
 					last_segment = active_segments.front().segment;
 					last_edge_index = active_segments.front().segment->start_edge_index;
-					last_connected_on_left = (removal_end - removal_begin)!=0;
+					last_connected_on_left = !v.remove.empty();
 
 				}
 				else //  (v.segment->start[2] > active_segments.front().z)
@@ -701,7 +846,7 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 				}
 			}
 
-			vertex_num += add_end - removal_begin;
+			//vertex_num += add_end - removal_begin;
 		}
 
 

@@ -11,7 +11,6 @@
 struct OutputSegment
 {
 	TooN::Vector<3> start_cam3d, end_cam3d;
-	TooN::Vector<2> start_cam2d, end_cam2d;
 	int triangle_index;
 	int start_edge;
 	int end_edge;
