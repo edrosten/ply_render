@@ -1,3 +1,4 @@
+/* Copyright (C) Computer Vision Consulting, 2013.*/
 #ifndef RENDERER_INCLUDE_SCANLINE_RENDER_H
 #define RENDERER_INCLUDE_SCANLINE_RENDER_H
 

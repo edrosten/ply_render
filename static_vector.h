@@ -1,3 +1,4 @@
+/* Copyright (C) Computer Vision Consulting, 2013.*/
 #ifndef RENDERER_INDLUDE_STATIC_VECTOR_H
 #define RENDERER_INDLUDE_STATIC_VECTOR_H
 
@@ -52,6 +53,11 @@ template<class C, size_t Max> class static_vector
 		const C* end() const
 		{
 			return data.begin() + num;
+		}
+		
+		bool empty() const
+		{
+			return num == 0;
 		}
 
 		#ifdef DEBUG

@@ -1,11 +1,14 @@
+/* Copyright (C) Computer Vision Consulting, 2013.*/
 #include "static_vector.h"
 #include "scanline_render.h"
 
 #include <cassert>
 #include <algorithm>
 #include <map>
+#include <unordered_map>
 
 #include <cvd/camera.h>
+#include <cvd/timer.h>
 #include <cvd/vector_image_ref.h>
 
 using namespace std;
@@ -26,6 +29,20 @@ using namespace TooN;
 	#define DP(X) do{}while(0)
 #endif
 
+//Hash for std::pair<int>
+struct PairHash
+{
+	size_t operator()(const std::pair<int, int>& v) const
+	{
+		using std::hash;
+		size_t seed=0xdeadbeef;
+		//Taken from boost::hash_combine
+		seed ^= hash<int>()(v.first) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+		seed ^= hash<int>()(v.second) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+		return seed;
+	}
+};
+
 struct Edge
 {
 	//Note that each edge in this code currently has a maximum of 3 edges
@@ -41,6 +58,9 @@ class ScanlineRendererImpl
 		//Edges are 0,1 1,2 2,0
 		const vector<array<int, 3> > triangles;
 		static constexpr double epsilon=1e-6;
+
+
+		static const int MaxTrianglesPerEdge=5;
 	
 	public:
 		ScanlineRendererImpl(const vector<array<int,3>>& triangles);
@@ -355,9 +375,29 @@ double triangle_approach_to_camera(const Vector<3>& n)
 }
 
 
+#define SCANLINE_RENDER_PROFILE
 
 std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::Vector<3>>& cam3d, const Camera::Linear& cam, ImageRef size)
 {
+	#ifdef SCANLINE_RENDER_PROFILE
+		#define RESET(X) timer.reset();
+		#define OUTPUT(X) cerr << X << ": " << timer.reset() << endl;
+		#define ADD(X) X += timer.reset();
+		cvd_timer timer, timer2;
+		double associate_chunks=0;
+		double sort_chunks=0;
+		double recompute_depth=0;
+		double swap_and_move=0;
+		double remove_edges=0;
+		double add_edges=0;
+		#define PRINT(X) cerr << #X << ": " << X << endl;
+	#else
+		#define RESET(X) 
+		#define OUTPUT(X)
+		#define ADD(X)
+		#define PRINT(X)
+	#endif
+	
 	#ifdef DEBUG_SCANLINE_RENDER
 		VideoDisplay win(size, 5);
 		win.make_current();
@@ -370,11 +410,13 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 
 	vector<Vector<3>> triangle_normals;
 	vector<Vector<2>> img2d;
-
+	
+	RESET();
 	for(const auto&v:cam3d)
 	{
 		img2d.push_back(cam.project(project(v)));
 	}
+	OUTPUT("project");
 
 	for(const auto& t:triangles)
 	{
@@ -382,8 +424,13 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 		Vector<3> v2 = cam3d[t[2]] - cam3d[t[1]];
 		triangle_normals.push_back(unit(v1^v2));
 	}
+	
+	OUTPUT("normals");
 
+	//Collect triangles into per-row buckets.
 	vector<vector<BucketEntry>> triangle_buckets = bucket_triangles_and_compute_segments(triangles, cam3d, img2d, size, cam, epsilon);
+
+	OUTPUT("bucket");
 
 	//Now perform a left to right sweep, to find Z crossings 
 	for(unsigned int y_ind = 0; y_ind < triangle_buckets.size(); y_ind++)
@@ -397,8 +444,8 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 		//intersections, which ensures that they remain prefectly aligned, and removals
 		//of old segments always happen before addition of new ones.
 		struct VertChunk{
-			vector<const BucketEntry*> remove;
-			vector<const BucketEntry*> add;
+			static_vector<const BucketEntry*, MaxTrianglesPerEdge> remove;
+			static_vector<const BucketEntry*, MaxTrianglesPerEdge> add;
 			pair<int, int> edge;
 			double x;
 			Vector<3> pos;
@@ -411,21 +458,36 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 		//Note that if we did it properly and only intersect the plane with the
 		//edges, not with the whole triangles, then this would not even occur.
 		//Either way it is not a problem.
-		map<pair<int, int>, VertChunk> vertices_by_edge;
+		unordered_map<pair<int, int>, VertChunk, PairHash> vertices_by_edge;
 		for(const BucketEntry& b: triangle_buckets[y_ind])
 		{
 			auto edge = edge_vertices(b, true, triangles);
 
-			vertices_by_edge[edge].add.push_back(&b);
-			vertices_by_edge[edge].x = b.start_x_img2d;
-			vertices_by_edge[edge].pos = b.start;
+			
+			auto vert = vertices_by_edge.insert(make_pair(edge,VertChunk()));
+
+			vert.first->second.add.push_back(&b);
+			vert.first->second.x = b.start_x_img2d;
+			vert.first->second.pos = b.start;
+
+			//vertices_by_edge[edge].add.push_back(&b);
+			//vertices_by_edge[edge].x = b.start_x_img2d;
+			//vertices_by_edge[edge].pos = b.start;
+
 			
 			edge = edge_vertices(b, false, triangles);
+			vert = vertices_by_edge.insert(make_pair(edge, VertChunk()));
 
-			vertices_by_edge[edge].remove.push_back(&b);
-			vertices_by_edge[edge].x = b.end_x_img2d;
-			vertices_by_edge[edge].pos = b.end;
+			vert.first->second.remove.push_back(&b);
+			vert.first->second.x = b.end_x_img2d;
+			vert.first->second.pos = b.end;
+
+			//vertices_by_edge[edge].remove.push_back(&b);
+			//vertices_by_edge[edge].x = b.end_x_img2d;
+			//vertices_by_edge[edge].pos = b.end;
 		}
+		
+		ADD(associate_chunks);
 		
 		//Now order the vertex chunks left to right.
 		vector<VertChunk> sweep_vertices;
@@ -439,6 +501,8 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 		{
 			return a.x < b.x;
 		});
+
+		ADD(sort_chunks);
 
 		vector<ActiveSegment> active_segments;
 		
@@ -522,7 +586,8 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 			for(auto& s:active_segments)
 				s.z = line_plane_intersection_point(plane_of_vertical_x, s.segment->start, s.segment->end-s.segment->start)[2];
 
-			
+			ADD(recompute_depth);
+
 			//Check to see if the line in 0 has changed Z ordering with any other lines. If it has
 			//then swap the new front line into position 1.
 			//
@@ -536,6 +601,8 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 			//
 			//This should generate a list of foremost line segments.
 			//
+
+			//This is unnecessary if the model does not self intersect.
 
 			int global_front = 0;
 			for(int front=0; front< (int)active_segments.size()-1; front++)
@@ -622,6 +689,7 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 					break;
 				}
 			}
+
 			
 			#ifdef DEBUG_SCANLINE_RENDER
 				if(debug_detail_here)
@@ -645,6 +713,8 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 			//if active_segments.size() == 0.
 			if(global_front != 0)
 				swap(active_segments[global_front], active_segments[0]);
+
+			ADD(swap_and_move);
 
 			//Fiiiinally deal with the vertex.
 
@@ -768,6 +838,7 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 				}
 			}
 
+			ADD(remove_edges);
 
 			if(!v.add.empty())
 			{
@@ -836,11 +907,21 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 				}
 			}
 
+			ADD(add_edges);
+
 			//vertex_num += add_end - removal_begin;
 		}
 
 
 	}
+
+	PRINT(associate_chunks);
+	PRINT(sort_chunks);
+	PRINT(recompute_depth);
+	PRINT(swap_and_move);
+	PRINT(remove_edges);
+	PRINT(add_edges);
+	cerr << "total: " << timer2.reset() << endl;
 	
 	return output;
 }

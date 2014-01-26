@@ -1,3 +1,4 @@
+/* Copyright (C) Computer Vision Consulting, 2013.*/
 #ifndef INC_READ_PLY_H
 #define INC_READ_PLY_H
 

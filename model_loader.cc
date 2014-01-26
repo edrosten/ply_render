@@ -1,3 +1,4 @@
+/* Copyright (C) Computer Vision Consulting, 2013.*/
 #include <unistd.h>
 #include <cerrno>
 #include <cstring>

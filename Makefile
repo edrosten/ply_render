@@ -1,11 +1,11 @@
-CXX=g++-4.7 -std=c++0x -I rply-1.1.1
+CXX=g++ -std=c++0x -I rply-1.1.1
 CC=gcc
 
 debug=0
 
 ifeq ($(debug),0)
-CXXFLAGS=-Wall -Wextra -O3 -g -ggdb -std=c++0x -DTOON_NDEBUG -DNDEBUG
 CXXFLAGS=-Wall -Wextra -O3 -g -ggdb -std=c++0x 
+CXXFLAGS=-Wall -Wextra -O3 -g -ggdb -std=c++0x -DTOON_NDEBUG -DNDEBUG
 LDFLAGS=-lGVars3 -lcvd 
 else
 CXXFLAGS=-Wall -Wextra -O0 -g -ggdb -std=c++0x -DTOON_CHECK_BOUNDS -D_GLIBCXX_DEBUG
@@ -15,10 +15,10 @@ endif
 default:render scanline_render
 
 render: render.o model_loader.o rply-1.1.1/rply.o runner.o
-	$(CXX) -o $@  $^ $(LDFLAGS)
+	$(CXX) -o $@  $^ $(LDFLAGS) -lGL
 
 scanline_render: scanline_render.o model_loader.o rply-1.1.1/rply.o  scanline_render_test.o
-	$(CXX) -o $@  $^ $(LDFLAGS)
+	$(CXX) -o $@  $^ $(LDFLAGS) -lGL
 
 clean:
-	rm *.o
+	rm -f *.o render scanline_render

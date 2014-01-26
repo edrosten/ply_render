@@ -1,3 +1,4 @@
+/* Copyright (C) Computer Vision Consulting, 2013.*/
 #ifndef RENDERER_INDLUDE_DEBUG_ARRAY_H
 #define RENDERER_INDLUDE_DEBUG_ARRAY_H
 	

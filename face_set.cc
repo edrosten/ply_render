@@ -1,3 +1,4 @@
+/* Copyright (C) Computer Vision Consulting, 2013.*/
 #include <vector>
 #include <set>
 #include <iostream>

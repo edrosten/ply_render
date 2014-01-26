@@ -1,3 +1,4 @@
+/* Copyright (C) Computer Vision Consulting, 2013.*/
 #ifndef RENDER_INCLUDE_RENDER_H
 #define RENDER_INCLUDE_RENDER_H
 

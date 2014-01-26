@@ -1,3 +1,4 @@
+/* Copyright (C) Computer Vision Consulting, 2013.*/
 #include "scanline_render.h"
 #include "model_loader.h"
 
@@ -30,11 +31,11 @@ int main(int argc, char** argv)
 //	SE3<> E = SE3<>::exp(makeVector(-.2,-.2,50,0,0,0));
 	//E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
 
-	SE3<> E = SE3<>::exp(makeVector(-.5, -.63, 2, 0, 0, 0));
-	E = E* SE3<>::exp(makeVector(0,0,0,.0,.0,.0));
+	//SE3<> E = SE3<>::exp(makeVector(-.5, -.63, 1, 0, 0, 0));
+	//E = E* SE3<>::exp(makeVector(0,0,0,.0,.0,.0));
 
-	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
-	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
+	//E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
+	//E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
 
 
 //	vector<array<int,3>> triangles = m.get_edges();
@@ -42,7 +43,19 @@ int main(int argc, char** argv)
 
 
 //		cam3d.push_back(E * v);
+
+
+	Vector<3> mean = Zeros;
+	for(auto v:m.vertices)
+		mean += v;
+	mean /= m.vertices.size();
 	
+	for(auto&& v:m.vertices)
+		v -= mean;
+
+	SE3<> E = SE3<>::exp(makeVector(0.,0.,.3,0,0,0));
+	E = E* SE3<>::exp(makeVector(0,0,0,.1,.5,.4));
+
 	vector<Vector<3>> c3d;
 	for(auto v:m.vertices)
 		c3d.push_back(E*v);
@@ -55,15 +68,17 @@ int main(int argc, char** argv)
 	cerr << "----------------------------------------------------------------------------------------\n";
 	glClear(GL_COLOR_BUFFER_BIT);
 	glBegin(GL_LINES);
-
+		
 	for(const auto& a: output)
 	{
-		//Vector<3> n = triangle_normals[a.triangle_index];
+		Vector<3> n = unit(c3d[m.U(a.triangle_index)] ^ c3d[m.V(a.triangle_index)]);
+		if(n[2] > 0)
+			n=-n;
 
 		//Do some primitive lighting
 
 		double l=.3;
-		//l += pow(max(0., unit(n) * unit(makeVector(1., -1.,-10))), 1)*.7;
+		l += pow(max(0., unit(n) * unit(makeVector(1., -0.,-.10))), .3)*0.6;
 		glColor3f(l,l,l);	
 
 		glVertex(cam.project(project(a.start_cam3d)));

@@ -1,3 +1,4 @@
+/* Copyright (C) Computer Vision Consulting, 2013.*/
 #define DEBUG
 #define DEBUG
 #undef DEBUG
