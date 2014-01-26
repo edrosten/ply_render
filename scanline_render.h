@@ -9,6 +9,11 @@
 #include <vector>
 #include <array>
 
+
+//Note:
+//start_edge and end_edge are either edge indices or
+//negative. If negative, then they refer to one of the
+//constanst in the ScanlineRenderer class.
 struct OutputSegment
 {
 	TooN::Vector<3> start_cam3d, end_cam3d;

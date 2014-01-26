@@ -16,6 +16,7 @@ using namespace CVD;
 using namespace TooN;
 
 //#define DEBUG_SCANLINE_RENDER
+//#define SCANLINE_RENDER_PROFILE
 
 
 #ifdef DEBUG_SCANLINE_RENDER
@@ -375,7 +376,6 @@ double triangle_approach_to_camera(const Vector<3>& n)
 }
 
 
-#define SCANLINE_RENDER_PROFILE
 
 std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::Vector<3>>& cam3d, const Camera::Linear& cam, ImageRef size)
 {
@@ -921,7 +921,9 @@ std::vector<OutputSegment> ScanlineRendererImpl::render(const std::vector<TooN::
 	PRINT(swap_and_move);
 	PRINT(remove_edges);
 	PRINT(add_edges);
-	cerr << "total: " << timer2.reset() << endl;
+	#ifdef SCANLINE_RENDER_PROFILE
+		cerr << "total: " << timer2.reset() << endl;
+	#endif
 	
 	return output;
 }
