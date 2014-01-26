@@ -10,7 +10,7 @@ ifeq ($(debug),1)
 CXXFLAGS+= -DTOON_CHECK_BOUNDS -D_GLIBCXX_DEBUG
 endif
 
-default:render scanline_render
+default:scanline_render
 
 render: render.o model_loader.o rply-1.1.1/rply.o runner.o
 	$(CXX) -o $@  $^ $(LDFLAGS)
